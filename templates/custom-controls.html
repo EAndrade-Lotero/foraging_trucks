@@ -1,0 +1,50 @@
+{% macro foraging_done(config) %}
+<script>
+    psynet.stageResponse = function () {
+        psynet.response.staged.rawAnswer = window.foragingGame
+            ? window.foragingGame.getStats()
+            : { coins_collected: 0, moves: 0, collected_coin_coordinates: [] };
+    };
+
+    window.foragingControl = {
+        submitted: false,
+
+        onStateUpdate: function (state) {
+            if (this.submitted) {
+                return;
+            }
+            if (!state || !state.coins || state.coins.length > 0) {
+                return;
+            }
+            this.submitResponse();
+        },
+
+        submitResponse: async function () {
+            if (this.submitted) {
+                return;
+            }
+            this.submitted = true;
+            if (
+                window.foragingGame
+                && typeof window.foragingGame.endRound === "function"
+            ) {
+                window.foragingGame.endRound();
+            }
+            if (
+                typeof psynet === "undefined"
+                || typeof psynet.submitResponse !== "function"
+            ) {
+                this.submitted = false;
+                return;
+            }
+            try {
+                await psynet.submitResponse(function () {
+                    window.foragingControl.submitted = false;
+                });
+            } catch (error) {
+                window.foragingControl.submitted = false;
+            }
+        },
+    };
+</script>
+{% endmacro %}

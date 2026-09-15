@@ -1,0 +1,9 @@
+numpy
+pandas
+markupsafe
+rq==2.8.0
+redis>=7.1.0,<8.0.0
+
+dallinger==12.2.0
+psynet@git+https://gitlab.com/PsyNetDev/PsyNet@4dee41f48f62a16ffe7c5becb2547b5cf75b880b#egg=psynet
+redis>=7.1.0,<8.0.0

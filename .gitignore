@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# PsyNet / Dallinger
+.deploy/
+server.log
+static/assets
+source_code.zip

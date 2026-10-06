@@ -1,9 +1,12 @@
 import json
+import os
 import random
 import time
+from pathlib import Path
 from typing import Dict, List
 
 import gevent
+from markupsafe import Markup
 from psynet.modular_page import Control, ModularPage, Prompt
 from psynet.participant import Participant
 from psynet.timeline import NullElt, WebSocketElt
@@ -13,6 +16,11 @@ GRID_SIZE = 10
 MIN_PLAYERS = 2
 MAX_PLAYERS = 10
 FORAGING_DURATION = 60
+MAX_MOVES = 15  # players buy moves directly, 0-15 per round (Andrade, 29-sep)
+MOVE_PRICE = 4  # points per move: 15 moves cost 3 coins (slide 15); not final
+VIEW_RADIUS = 1  # fog: each player sees the 3x3 cells around their pac-man
+# Fixed coin maps per terrain, made by tools/generate_maps.py (slides 7-8).
+MAPS_DIR = Path(__file__).resolve().parent / "static" / "maps"
 
 PLAYER_COLORS = [
     "#f1c40f",
@@ -39,6 +47,21 @@ SPAWN_POSITIONS = [
     (4, 4),
     (5, 5),
 ]
+
+# Round terrains: Andrade's Coordinator_and_Foragers maps scaled to 10x10
+# (tools/generate_maps.py): abundant and concentrated first, then scattered and scarce
+# (made with Andrade's own generator, tools/generate_scattered_map.py).
+ROUND_TERRAINS = ["andrade10_map12", "andrade10_map_scattered"]
+
+# FORAGING_VARIANT=trucks: 3D trucks and spinning coins on Andrade's Coordinator_and_Foragers
+# maps (scaled from 80x80 to 20x20), with both trucks leaving from a shared base at the centre.
+VARIANT = os.environ.get("FORAGING_VARIANT", "pacman")
+if VARIANT == "trucks":
+    GRID_SIZE = 20
+    MAX_MOVES = 80
+    ROUND_TERRAINS = ["andrade_map0", "andrade_map5"]
+    SPAWN_POSITIONS = [(9, 10), (10, 10), (9, 9), (10, 9), (8, 10), (11, 10),
+                       (8, 9), (11, 9), (9, 11), (10, 11)]
 
 
 def _patch_dallinger_redis_pubsub_listener():
@@ -91,6 +114,20 @@ def _patch_dallinger_redis_pubsub_listener():
 _patch_dallinger_redis_pubsub_listener()
 
 
+def last_valid_answer(participant: Participant, label: str):
+    """Latest answer to a page that passed validation.
+
+    Answers are written to the trial accumulator before validation, so a rejected
+    answer would otherwise shadow the corrected one.
+    """
+    responses = [
+        r
+        for r in participant.all_responses
+        if r.question == label and r.successful_validation
+    ]
+    return max(responses, key=lambda r: r.id).answer if responses else None
+
+
 def active_participant_ids(participant: Participant) -> List[int]:
     return sorted(
         p.id for p in participant.sync_group.participants if not p.failed
@@ -108,6 +145,7 @@ def known_players_for_group(participant: Participant) -> dict:
             "color": PLAYER_COLORS[idx],
             "coins": 0,
             "collected_coin_coordinates": [],
+            "connected": True,
         }
     }
 
@@ -119,13 +157,15 @@ class EnableForaging(NullElt, WebSocketElt):
     _rooms: Dict[str, dict] = {}
 
     @classmethod
-    def remove_participant(cls, participant_id, experiment):
+    def mark_disconnected(cls, participant_id, experiment):
+        # Keep the player's state: a dropped socket reconnects and rejoins, and the
+        # partner should keep seeing the truck (greyed out) in the meantime.
         pid_str = str(participant_id)
         for room_id, room in cls._rooms.items():
             if pid_str not in room["connected"]:
                 continue
             room["connected"].discard(pid_str)
-            room["players"].pop(pid_str, None)
+            room["players"][pid_str]["connected"] = False
             cls._broadcast_state_for_room(experiment, room_id)
 
     def handle_message(
@@ -138,17 +178,13 @@ class EnableForaging(NullElt, WebSocketElt):
 
         msg_type = data.get("type")
 
-        if msg_type == "join_room":
+        if msg_type in ("join_room", "request_state"):
             if participant is not None:
-                room = self._ensure_room(room_id, data.get("grid_size", GRID_SIZE))
-                self._ensure_round_started(room, receive_time)
-                self._register_player(room, participant)
-                self._prune_failed_players(room, participant)
-                self._broadcast_state(experiment, room_id)
-
-        elif msg_type == "request_state":
-            if participant is not None:
-                room = self._ensure_room(room_id, data.get("grid_size", GRID_SIZE))
+                room = self._ensure_room(
+                    room_id,
+                    data.get("grid_size", GRID_SIZE),
+                    data.get("terrain", "abundant"),
+                )
                 self._ensure_round_started(room, receive_time)
                 self._register_player(room, participant)
                 self._prune_failed_players(room, participant)
@@ -158,7 +194,7 @@ class EnableForaging(NullElt, WebSocketElt):
             if participant is not None:
                 room = self._rooms.get(room_id)
                 if room is not None:
-                    self._unregister_player(room, participant.id)
+                    self._mark_left(room, participant.id)
                     self._broadcast_state(experiment, room_id)
 
         elif msg_type == "move":
@@ -176,22 +212,30 @@ class EnableForaging(NullElt, WebSocketElt):
 
             dx = int(data.get("dx", 0))
             dy = int(data.get("dy", 0))
-            if abs(dx) + abs(dy) != 1:
+            if abs(dx) + abs(dy) != 1 or player["moves_left"] <= 0:
                 return
 
             gs = room["grid_size"]
-            player["x"] = max(0, min(gs - 1, player["x"] + dx))
-            player["y"] = max(0, min(gs - 1, player["y"] + dy))
+            x = max(0, min(gs - 1, player["x"] + dx))
+            y = max(0, min(gs - 1, player["y"] + dy))
+            if (x, y) == (player["x"], player["y"]):
+                return  # bumping into the edge costs no move
+            player["x"], player["y"] = x, y
+            player["moves_left"] -= 1
+            player["trajectory"].append([x, y])
             self._collect_coin(room, player)
             self._broadcast_state(experiment, room_id)
 
-    def _ensure_room(self, room_id: str, grid_size: int = GRID_SIZE) -> dict:
+    def _ensure_room(
+        self, room_id: str, grid_size: int = GRID_SIZE, terrain: str = "abundant"
+    ) -> dict:
         if room_id not in self._rooms:
             self._rooms[room_id] = {
                 "grid_size": grid_size,
+                "terrain": terrain,
                 "players": {},
                 "connected": set(),
-                "coins": self._generate_coins(grid_size),
+                "coins": self._generate_coins(grid_size, terrain),
                 "round_started_at": None,
             }
         return self._rooms[room_id]
@@ -204,19 +248,22 @@ class EnableForaging(NullElt, WebSocketElt):
         else:
             room["round_started_at"] = time.time()
 
-    def _generate_coins(self, grid_size: int) -> List[dict]:
-        blocked = set(SPAWN_POSITIONS[:MAX_PLAYERS])
-        candidates = [
-            (x, y)
-            for x in range(grid_size)
-            for y in range(grid_size)
-            if (x, y) not in blocked
-        ]
-        n_coins = min(len(candidates), grid_size + 5)
-        positions = random.sample(candidates, n_coins)
+    def _generate_coins(self, grid_size: int, terrain: str) -> List[dict]:
+        map_file = MAPS_DIR / f"{terrain}.json"
+        if map_file.exists():
+            positions = [tuple(pos) for pos in json.loads(map_file.read_text())]
+        else:
+            blocked = set(SPAWN_POSITIONS[:MAX_PLAYERS])
+            candidates = [
+                (x, y)
+                for x in range(grid_size)
+                for y in range(grid_size)
+                if (x, y) not in blocked
+            ]
+            positions = random.sample(candidates, min(len(candidates), grid_size + 5))
         return [{"id": i, "x": x, "y": y} for i, (x, y) in enumerate(positions)]
 
-    def _player_state(self, index: int) -> dict:
+    def _player_state(self, index: int, moves: int) -> dict:
         spawn = SPAWN_POSITIONS[index]
         return {
             "x": spawn[0],
@@ -224,22 +271,35 @@ class EnableForaging(NullElt, WebSocketElt):
             "color": PLAYER_COLORS[index],
             "coins": 0,
             "collected_coin_coordinates": [],
+            "moves_bought": moves,
+            "moves_left": moves,
+            "trajectory": [[spawn[0], spawn[1]]],
+            "connected": True,
         }
 
     def _register_player(self, room: dict, participant: Participant):
         pid_str = str(participant.id)
         room["connected"].add(pid_str)
-        active_ids = active_participant_ids(participant)
-        if pid_str not in room["players"]:
-            idx = active_ids.index(participant.id)
-            room["players"][pid_str] = self._player_state(idx)
+        if pid_str in room["players"]:
+            # Rejoining after a dropped connection: keep position, coins and moves.
+            room["players"][pid_str]["connected"] = True
+            return
+        idx = active_participant_ids(participant).index(participant.id)
+        # Moves come from the validated answer in the database, not from the client.
+        try:
+            moves = round(float(last_valid_answer(participant, "buy_moves") or 0))
+        except (TypeError, ValueError):
+            moves = 0
+        room["players"][pid_str] = self._player_state(idx, min(max(moves, 0), MAX_MOVES))
 
-    def _unregister_player(self, room: dict, participant_id: int):
+    def _mark_left(self, room: dict, participant_id: int):
         pid_str = str(participant_id)
         room["connected"].discard(pid_str)
-        room["players"].pop(pid_str, None)
+        if pid_str in room["players"]:
+            room["players"][pid_str]["connected"] = False
 
     def _prune_failed_players(self, room: dict, participant: Participant):
+        # Only failed participants disappear; disconnected ones stay on the board.
         active_id_strs = {str(pid) for pid in active_participant_ids(participant)}
         for pid_str in list(room["players"]):
             if pid_str not in active_id_strs:
@@ -269,6 +329,7 @@ class EnableForaging(NullElt, WebSocketElt):
             "room_id": room_id,
             "state": {
                 "grid_size": room["grid_size"],
+                "terrain": room.get("terrain"),
                 "players": room["players"],
                 "coins": room["coins"],
                 "round_started_at": room.get("round_started_at"),
@@ -290,40 +351,55 @@ class ForagingPrompt(Prompt):
         room_id: str,
         participant_id: int,
         known_players: dict,
+        moves: int,
+        terrain: str,
         grid_size: int = GRID_SIZE,
-        max_players: int = MAX_PLAYERS,
         timer_seconds: int = FORAGING_DURATION,
-        countdown_audio: str = "/static/countdown.mp3",
-        coin_collect_audio: str = "/static/coin-collect.mp3",
+        title: str = "",
     ):
-        super().__init__()
+        super().__init__(text=Markup(title) if title else None)
         self.room_id = room_id
         self.participant_id = participant_id
         self.known_players = known_players
+        self.moves = moves
+        self.view_radius = VIEW_RADIUS
+        self.terrain = terrain
         self.grid_size = grid_size
-        self.max_players = max_players
         self.timer_seconds = timer_seconds
-        self.countdown_audio = countdown_audio
-        self.coin_collect_audio = coin_collect_audio
         self.channel = EnableForaging.channel
+        self.style = VARIANT
+
+
+EMPTY_STATS = {
+    "coins_collected": 0,
+    "moves": 0,
+    "collected_coin_coordinates": [],
+    "trajectory": [],
+}
 
 
 class ForagingControl(Control):
     macro = "foraging_done"
     external_template = "custom-controls.html"
-    end_when_no_coins = True
 
     def format_answer(self, raw_answer, **kwargs):
         if isinstance(raw_answer, dict):
             return raw_answer
-        return {"coins_collected": 0, "moves": 0, "collected_coin_coordinates": []}
+        return dict(EMPTY_STATS)
 
     def get_bot_response(self, experiment, bot, page, prompt):
-        return {"coins_collected": 0, "moves": 0, "collected_coin_coordinates": []}
+        return dict(EMPTY_STATS)
 
 
 class ForagingPage(ModularPage):
-    def __init__(self, participant: Participant, round_id: int):
+    def __init__(
+        self,
+        participant: Participant,
+        round_id: int,
+        moves: int,
+        terrain: str,
+        title: str = "",
+    ):
         # The room ID must be shared by the whole sync group, otherwise each
         # participant would forage alone in their own room. The node ID is shared
         # because followers are assigned the leader's node, while the trial ID is not.
@@ -335,9 +411,11 @@ class ForagingPage(ModularPage):
                 room_id=room_id,
                 participant_id=participant.id,
                 known_players=known_players,
+                moves=moves,
+                terrain=terrain,
                 grid_size=GRID_SIZE,
-                max_players=MAX_PLAYERS,
                 timer_seconds=FORAGING_DURATION,
+                title=title,
             ),
             control=ForagingControl(),
             time_estimate=FORAGING_DURATION,

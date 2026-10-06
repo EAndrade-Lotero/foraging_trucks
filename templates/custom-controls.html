@@ -3,7 +3,7 @@
     psynet.stageResponse = function () {
         psynet.response.staged.rawAnswer = window.foragingGame
             ? window.foragingGame.getStats()
-            : { coins_collected: 0, moves: 0, collected_coin_coordinates: [] };
+            : { coins_collected: 0, moves: 0, collected_coin_coordinates: [], trajectory: [] };
     };
 
     window.foragingControl = {
@@ -13,7 +13,15 @@
             if (this.submitted) {
                 return;
             }
-            if (!state || !state.coins || state.coins.length > 0) {
+            if (!state || !state.coins || !state.players) {
+                return;
+            }
+            // The round ends early when the coins are gone or every pac-man is out of moves.
+            var players = Object.values(state.players);
+            var allOutOfMoves = players.length > 0 && players.every(function (p) {
+                return p.moves_left !== undefined && p.moves_left <= 0;
+            });
+            if (state.coins.length > 0 && !allOutOfMoves) {
                 return;
             }
             this.submitResponse();

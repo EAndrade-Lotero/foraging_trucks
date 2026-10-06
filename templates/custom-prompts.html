@@ -3,7 +3,7 @@
     #foraging-container {
         display: flex;
         flex-direction: column;
-        align-items: center;
+        align-items: flex-start;
         gap: 0.75rem;
         margin: 1rem 0;
     }
@@ -16,16 +16,26 @@
         display: block;
     }
 
+    /* One status row as wide as the board: coins, moves, time. */
     #foraging-hud {
-        font-size: 0.95rem;
+        width: 504px;
+        display: grid;
+        grid-template-columns: max-content 1fr max-content;
+        gap: 1rem;
+        align-items: center;
+        font-size: 1rem;
         color: #333;
-        text-align: center;
-        max-width: 520px;
+        font-variant-numeric: tabular-nums;
     }
 
-    #foraging-score {
-        font-weight: 600;
-        margin-bottom: 0.25rem;
+    .hud-label {
+        color: #6c757d;
+        margin-right: 0.4rem;
+    }
+
+    .hud-value {
+        font-weight: 700;
+        font-size: 1.15rem;
     }
 
     #foraging-board-wrap {
@@ -33,38 +43,61 @@
         display: inline-block;
     }
 
-    #foraging-timer {
-        position: absolute;
-        top: 10px;
-        right: 10px;
-        z-index: 2;
-        min-width: 3.5rem;
-        padding: 0.35rem 0.6rem;
-        border-radius: 6px;
-        background: rgba(15, 15, 26, 0.88);
-        color: #f8f8f8;
-        font-size: 1.1rem;
-        font-weight: 700;
-        font-variant-numeric: tabular-nums;
-        text-align: center;
-        border: 1px solid #3d3d5c;
-        pointer-events: none;
+    #foraging-legend {
+        width: 504px;
+        font-size: 0.875rem;
+        color: #495057;
+        line-height: 1.45;
+    }
+
+    #foraging-moves {
+        justify-self: center;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    #foraging-moves-bar {
+        width: 120px;
+        height: 10px;
+        border-radius: 5px;
+        background: #ddd;
+        overflow: hidden;
+    }
+
+    #foraging-moves-fill {
+        height: 100%;
+        width: 100%;
+        background: #27ae60;
+    }
+
+    #foraging-moves.empty {
+        color: #c0392b;
+        font-weight: 600;
     }
 
     #foraging-timer.warning {
-        color: #ff7675;
-        border-color: #ff7675;
+        color: #c0392b;
     }
 </style>
 
+{% if config.text %}<div>{{ config.text }}</div>{% endif %}
 <div id="foraging-container">
     <div id="foraging-hud">
-        <div id="foraging-score">Coins collected: 0</div>
-        <div>Use arrow keys or WASD to move your pacman. Collect gold coins on the {{ config.grid_size }}&times;{{ config.grid_size }} board with up to {{ config.max_players }} players.</div>
+        <div><span class="hud-label">Coins</span><span id="foraging-score" class="hud-value">0</span></div>
+        <div id="foraging-moves">
+            <span class="hud-label">Moves</span>
+            <div id="foraging-moves-bar"><div id="foraging-moves-fill"></div></div>
+            <span id="foraging-moves-text" class="hud-value" style="min-width:8.5ch">{{ config.moves }} left</span>
+        </div>
+        <div{% if config.practice %} style="visibility:hidden"{% endif %}><span class="hud-label">Time</span><span class="hud-value"><span id="foraging-timer">{{ config.timer_seconds }}</span> s</span></div>
     </div>
     <div id="foraging-board-wrap">
-        <div id="foraging-timer">{{ config.timer_seconds }}</div>
         <canvas id="foraging-canvas" width="500" height="500"></canvas>
+    </div>
+    <div id="foraging-legend">
+        Move with the arrow keys or WASD. The pac-man with the <strong>white ring</strong> is you.
+        You only see coins in the squares next to you; coloured squares show where each of you has been.
     </div>
 </div>
 
@@ -74,16 +107,19 @@
     var ROOM_ID = {{ config.room_id | tojson }};
     var GLOBAL_CH = {{ config.channel | tojson }};
     var GRID_SIZE = {{ config.grid_size }};
-    var MAX_PLAYERS = {{ config.max_players }};
+    var TERRAIN = {{ config.terrain | tojson }};
+    var STYLE = {{ config.style | tojson }};
+    var VIEW_RADIUS = {{ config.view_radius }};
+    var START_MOVES = {{ config.moves }};
+    // Tutorial practice board: moves are applied locally, without a partner or server.
+    var PRACTICE = {{ (config.practice or false) | tojson }};
+    var PRACTICE_COINS = {{ (config.coins or []) | tojson }};
     var MY_ID = String({{ config.participant_id }});
     var KNOWN_PLAYERS = {{ config.known_players | tojson }};
     var TIMER_SECONDS = {{ config.timer_seconds }};
     var TIMER_STORAGE_KEY = "foraging_round_" + ROOM_ID;
-    var COUNTDOWN_SOUND_KEY = "foraging_countdown_played_" + ROOM_ID;
-    var COUNTDOWN_AUDIO = {{ config.countdown_audio | tojson }};
-    var COIN_COLLECT_AUDIO = {{ config.coin_collect_audio | tojson }};
 
-    var stats = { coins_collected: 0, moves: 0, collected_coin_coordinates: [] };
+    var stats = { coins_collected: 0, moves: 0, collected_coin_coordinates: [], trajectory: [] };
     var gameSocket = null;
     var leftGame = false;
     var booted = false;
@@ -91,9 +127,6 @@
     var timerRemaining = TIMER_SECONDS;
     var timerInterval = null;
     var roundStartedAt = null;
-    var countdownSound = null;
-    var countdownSoundPlayed = false;
-    var coinCollectSound = null;
     var localState = {
         players: JSON.parse(JSON.stringify(KNOWN_PLAYERS)),
         coins: [],
@@ -117,9 +150,163 @@
         }
     }
 
+    // 3D view for the "trucks" variant: persistent meshes so coins can spin and trucks glide.
+    var trucks = {
+        coins: {},
+        players: {},
+        clock: null,
+
+        init: function (canvas) {
+            renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+            renderer.setPixelRatio(window.devicePixelRatio || 1);
+            renderer.setSize(500, 500);
+            renderer.setClearColor(0xbfe3f0);
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(40, 1, 0.1, 200);
+            camera.up.set(0, 0, 1);
+            camera.position.set(0, -GRID_SIZE * 0.95, GRID_SIZE * 1.02);
+            camera.lookAt(0, -GRID_SIZE * 0.06, 0);
+            scene.add(new THREE.HemisphereLight(0xffffff, 0x8a7a55, 1.4));
+            var sun = new THREE.DirectionalLight(0xffffff, 1.6);
+            sun.position.set(GRID_SIZE * 0.4, -GRID_SIZE * 0.6, GRID_SIZE);
+            scene.add(sun);
+
+            boardGroup = new THREE.Group();
+            scene.add(boardGroup);
+            var ground = new THREE.Mesh(
+                new THREE.PlaneGeometry(GRID_SIZE, GRID_SIZE),
+                new THREE.MeshStandardMaterial({ color: 0xe3d3a3, roughness: 1 })
+            );
+            boardGroup.add(ground);
+            var grid = new THREE.GridHelper(GRID_SIZE, GRID_SIZE, 0xc8b784, 0xc8b784);
+            grid.rotation.x = Math.PI / 2;
+            grid.position.z = 0.005;
+            boardGroup.add(grid);
+            var base = new THREE.Mesh(
+                new THREE.CircleGeometry(1.2, 32),
+                new THREE.MeshStandardMaterial({ color: 0xb9a676 })
+            );
+            base.position.set(0, -0.5, 0.01);  // shared base under the two start cells
+            boardGroup.add(base);
+            this.clock = new THREE.Clock();
+        },
+
+        makeCoin: function () {
+            var coin = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.36, 0.36, 0.09, 32),
+                new THREE.MeshStandardMaterial({
+                    color: 0xffcc33, metalness: 0.35, roughness: 0.35, emissive: 0x7a5200,
+                })
+            );
+            return coin;  // cylinder axis lies in the board plane: the coin stands upright
+        },
+
+        makeTruck: function (color) {
+            var truck = new THREE.Group();
+            var paint = new THREE.MeshStandardMaterial({ color: parseColor(color), roughness: 0.5 });
+            var body = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.46, 0.26), paint);
+            body.position.set(-0.08, 0, 0.27);
+            var cabin = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.42, 0.26), paint);
+            cabin.position.set(0.3, 0, 0.33);
+            var glass = new THREE.Mesh(
+                new THREE.BoxGeometry(0.02, 0.34, 0.14),
+                new THREE.MeshStandardMaterial({ color: 0x223344, roughness: 0.2 })
+            );
+            glass.position.set(0.46, 0, 0.38);
+            truck.add(body, cabin, glass);
+            var tyre = new THREE.MeshStandardMaterial({ color: 0x222222 });
+            [[-0.3, 0.24], [0.25, 0.24], [-0.3, -0.24], [0.25, -0.24]].forEach(function (p) {
+                var wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.08, 16), tyre);
+                wheel.position.set(p[0], p[1], 0.12);
+                truck.add(wheel);
+            });
+            truck.userData.paint = paint;
+            truck.scale.setScalar(1.35);
+            return truck;
+        },
+
+        sync: function () {
+            var self = this;
+            var seen = {};
+            (localState.coins || []).forEach(function (coin) {
+                var key = coin.x + "," + coin.y;
+                seen[key] = true;
+                if (!self.coins[key]) {
+                    var mesh = self.makeCoin();
+                    var pos = gridToWorld(coin.x, coin.y);
+                    mesh.position.set(pos.x, pos.y, 0.4);
+                    mesh.rotation.z = Math.random() * Math.PI;
+                    boardGroup.add(mesh);
+                    self.coins[key] = mesh;
+                }
+            });
+            Object.keys(self.coins).forEach(function (key) {
+                if (!seen[key]) {
+                    boardGroup.remove(self.coins[key]);
+                    delete self.coins[key];
+                }
+            });
+            Object.keys(localState.players || {}).forEach(function (pid) {
+                var player = localState.players[pid];
+                var truck = self.players[pid];
+                if (!truck) {
+                    truck = self.makeTruck(player.color);
+                    var start = gridToWorld(player.x, player.y);
+                    truck.position.set(start.x, start.y, 0);
+                    if (pid === MY_ID) {
+                        var ring = new THREE.Mesh(
+                            new THREE.RingGeometry(0.46, 0.56, 32),
+                            new THREE.MeshBasicMaterial({ color: 0xffffff })
+                        );
+                        ring.position.z = 0.02;
+                        truck.add(ring);
+                    }
+                    boardGroup.add(truck);
+                    self.players[pid] = truck;
+                }
+                var target = gridToWorld(player.x, player.y);
+                var dx = target.x - truck.position.x, dy = target.y - truck.position.y;
+                if (Math.abs(dx) + Math.abs(dy) > 0.01) {
+                    truck.rotation.z = Math.atan2(dy, dx);  // face the direction of travel
+                }
+                truck.userData.target = target;
+                truck.userData.paint.color = player.connected === false
+                    ? new THREE.Color(0x888888) : parseColor(player.color);
+            });
+        },
+
+        animate: function () {
+            var dt = this.clock ? this.clock.getDelta() : 0.016;
+            var t = this.clock ? this.clock.elapsedTime : 0;
+            var self = this;
+            Object.keys(self.coins).forEach(function (key, i) {
+                var coin = self.coins[key];
+                coin.rotation.z += dt * 2.4;
+                coin.position.z = 0.45 + 0.05 * Math.sin(t * 2 + i);
+            });
+            Object.keys(self.players).forEach(function (pid) {
+                var truck = self.players[pid];
+                var target = truck.userData.target;
+                if (target) {
+                    truck.position.x += (target.x - truck.position.x) * Math.min(1, dt * 12);
+                    truck.position.y += (target.y - truck.position.y) * Math.min(1, dt * 12);
+                }
+            });
+        },
+    };
+
     function initThree() {
         if (booted) return;
         booted = true;
+
+        if (STYLE === "trucks") {
+            var canvas3d = document.getElementById("foraging-canvas");
+            if (!canvas3d || typeof THREE === "undefined") return;
+            trucks.init(canvas3d);
+            syncMeshes();
+            animate();
+            return;
+        }
 
         var canvas = document.getElementById("foraging-canvas");
         if (!canvas || typeof THREE === "undefined") {
@@ -132,7 +319,7 @@
         renderer.setClearColor(0x0f0f1a);
 
         scene = new THREE.Scene();
-        var frustum = GRID_SIZE * cellSize * 0.62;
+        var frustum = GRID_SIZE * cellSize * 0.53;
         camera = new THREE.OrthographicCamera(
             -frustum, frustum, frustum, -frustum, 0.1, 100
         );
@@ -177,15 +364,16 @@
 
     function animate() {
         requestAnimationFrame(animate);
+        if (STYLE === "trucks") trucks.animate();
         if (renderer && scene && camera) {
             renderer.render(scene, camera);
         }
     }
 
-    function makePacmanMesh(color, isSelf) {
+    function makePacmanMesh(color, isSelf, connected) {
         var group = new THREE.Group();
         var bodyMat = new THREE.MeshBasicMaterial({
-            color: parseColor(color),
+            color: connected ? parseColor(color) : new THREE.Color(0x777777),
             side: THREE.DoubleSide,
         });
         var bodyGeo = new THREE.CircleGeometry(0.34, 32, 0.15 * Math.PI, 1.7 * Math.PI);
@@ -213,13 +401,24 @@
 
     function syncMeshes() {
         if (!boardGroup) return;
+        if (STYLE === "trucks") {
+            trucks.sync();
+            return;
+        }
 
         Object.keys(entityMeshes).forEach(function (key) {
             boardGroup.remove(entityMeshes[key]);
         });
         entityMeshes = {};
 
+        // Fog: coins are visible only within VIEW_RADIUS of your own pac-man.
+        var me = (localState.players || {})[MY_ID] || KNOWN_PLAYERS[MY_ID];
+        function inView(x, y) {
+            return !me || (Math.abs(x - me.x) <= VIEW_RADIUS && Math.abs(y - me.y) <= VIEW_RADIUS);
+        }
+
         (localState.coins || []).forEach(function (coin, idx) {
+            if (!inView(coin.x, coin.y)) return;
             var pos = gridToWorld(coin.x, coin.y);
             var mesh = makeCoinMesh();
             mesh.position.set(pos.x, pos.y, 0.05);
@@ -227,14 +426,51 @@
             entityMeshes["coin_" + idx] = mesh;
         });
 
+        var fogMat = new THREE.MeshBasicMaterial({ color: 0x05050c, transparent: true, opacity: 0.8 });
+        for (var fx = 0; fx < GRID_SIZE; fx++) {
+            for (var fy = 0; fy < GRID_SIZE; fy++) {
+                if (inView(fx, fy)) continue;
+                var cell = new THREE.Mesh(new THREE.PlaneGeometry(cellSize, cellSize), fogMat);
+                var cpos = gridToWorld(fx, fy);
+                cell.position.set(cpos.x, cpos.y, 0.06);
+                boardGroup.add(cell);
+                entityMeshes["fog_" + fx + "_" + fy] = cell;
+            }
+        }
+
+        // Trace: squares a pac-man has visited are tinted with its colour (not dots,
+        // which would look like coins).
+        Object.keys(localState.players || {}).forEach(function (pid) {
+            var player = localState.players[pid];
+            var tint = new THREE.MeshBasicMaterial({
+                color: parseColor(player.color), transparent: true, opacity: 0.28,
+            });
+            var visited = {};
+            (player.trajectory || []).forEach(function (step) {
+                var key = step[0] + "_" + step[1];
+                if (visited[key]) return;
+                visited[key] = true;
+                var tile = new THREE.Mesh(new THREE.PlaneGeometry(cellSize * 0.9, cellSize * 0.9), tint);
+                var tpos = gridToWorld(step[0], step[1]);
+                tile.position.set(tpos.x, tpos.y, 0.07);
+                boardGroup.add(tile);
+                entityMeshes["trace_" + pid + "_" + key] = tile;
+            });
+        });
+
         Object.keys(localState.players || {}).forEach(function (pid) {
             var player = localState.players[pid];
             var pos = gridToWorld(player.x, player.y);
-            var mesh = makePacmanMesh(player.color, pid === MY_ID);
+            var mesh = makePacmanMesh(player.color, pid === MY_ID, player.connected !== false);
             mesh.position.set(pos.x, pos.y, 0.1);
             boardGroup.add(mesh);
             entityMeshes["player_" + pid] = mesh;
         });
+    }
+
+    function movesLeft() {
+        var me = (localState.players || {})[MY_ID];
+        return me && me.moves_left !== undefined ? me.moves_left : START_MOVES;
     }
 
     function updateScore() {
@@ -244,36 +480,29 @@
         stats.collected_coin_coordinates = me && me.collected_coin_coordinates
             ? me.collected_coin_coordinates.slice()
             : [];
+        stats.trajectory = me && me.trajectory ? me.trajectory.slice() : [];
+        // Count moves from the server's trajectory: bumps into the edge are not moves.
+        stats.moves = Math.max(0, stats.trajectory.length - 1);
+        stats.moves_bought = me ? me.moves_bought : 0;
+        stats.moves_left = movesLeft();
         var scoreEl = document.getElementById("foraging-score");
         if (scoreEl) {
-            scoreEl.textContent = "Coins collected: " + coins;
+            scoreEl.textContent = coins;
         }
-    }
-
-    function snapshotPlayerCoins(players) {
-        var snapshot = {};
-        Object.keys(players || {}).forEach(function (pid) {
-            snapshot[pid] = players[pid].coins || 0;
-        });
-        return snapshot;
-    }
-
-    function anyPlayerCollectedCoin(previousCoins, players) {
-        return Object.keys(players || {}).some(function (pid) {
-            var previous = previousCoins[pid] || 0;
-            var current = players[pid].coins || 0;
-            return current > previous;
-        });
-    }
-
-    function playCoinCollectSound() {
-        if (!coinCollectSound) {
-            coinCollectSound = new Audio(COIN_COLLECT_AUDIO);
+        var left = movesLeft();
+        var fill = document.getElementById("foraging-moves-fill");
+        if (fill) {
+            fill.style.width = (START_MOVES > 0 ? 100 * left / START_MOVES : 0) + "%";
         }
-        coinCollectSound.currentTime = 0;
-        var playPromise = coinCollectSound.play();
-        if (playPromise && typeof playPromise.catch === "function") {
-            playPromise.catch(function () {});
+        var text = document.getElementById("foraging-moves-text");
+        if (text) {
+            text.textContent = left > 0
+                ? left + " left"
+                : "No moves left";
+        }
+        var movesEl = document.getElementById("foraging-moves");
+        if (movesEl) {
+            movesEl.classList.toggle("empty", left <= 0);
         }
     }
 
@@ -309,7 +538,7 @@
                 room_id: ROOM_ID,
                 sender: MY_ID,
                 grid_size: GRID_SIZE,
-                max_players: MAX_PLAYERS,
+                terrain: TERRAIN,
             });
         };
 
@@ -323,13 +552,9 @@
             if (String(msg.room_id) !== String(ROOM_ID)) return;
 
             if (msg.type === "state_update") {
-                var previousCoins = snapshotPlayerCoins(localState.players);
                 localState = msg.state || { players: {}, coins: [] };
                 if (!localState.players) {
                     localState.players = {};
-                }
-                if (anyPlayerCollectedCoin(previousCoins, localState.players)) {
-                    playCoinCollectSound();
                 }
                 syncMeshes();
                 updateScore();
@@ -362,35 +587,7 @@
     function clearPersistedRoundStart() {
         try {
             sessionStorage.removeItem(TIMER_STORAGE_KEY);
-            sessionStorage.removeItem(COUNTDOWN_SOUND_KEY);
         } catch (e) {}
-    }
-
-    function initCountdownSound() {
-        countdownSound = new Audio(COUNTDOWN_AUDIO);
-        try {
-            countdownSoundPlayed = sessionStorage.getItem(COUNTDOWN_SOUND_KEY) === "1";
-        } catch (e) {
-            countdownSoundPlayed = false;
-        }
-    }
-
-    function maybePlayCountdownSound() {
-        if (countdownSoundPlayed || timerRemaining > 10 || timerExpired) {
-            return;
-        }
-        countdownSoundPlayed = true;
-        try {
-            sessionStorage.setItem(COUNTDOWN_SOUND_KEY, "1");
-        } catch (e) {}
-        if (!countdownSound) {
-            return;
-        }
-        countdownSound.currentTime = 0;
-        var playPromise = countdownSound.play();
-        if (playPromise && typeof playPromise.catch === "function") {
-            playPromise.catch(function () {});
-        }
     }
 
     function computeTimerRemaining(startedAt) {
@@ -432,7 +629,6 @@
         if (!timerEl) return;
         timerEl.textContent = formatTimer(timerRemaining);
         timerEl.classList.toggle("warning", timerRemaining <= 10);
-        maybePlayCountdownSound();
     }
 
     function finishRound() {
@@ -459,6 +655,7 @@
     }
 
     function startTimer() {
+        if (PRACTICE) return;
         var persistedStart = loadPersistedRoundStart();
         if (persistedStart !== null) {
             roundStartedAt = persistedStart;
@@ -472,15 +669,58 @@
         }
     }
 
+    // The tutorial engine enables moves only during a board step, saves a checkpoint when
+    // the step starts and can restore it ("Restart this step").
+    var practiceEnabled = false;
+    var practiceCheckpoint = null;
+    window.addEventListener("practice-enable", function (e) { practiceEnabled = e.detail; });
+    window.addEventListener("practice-checkpoint", function () {
+        practiceCheckpoint = JSON.stringify({ players: localState.players, coins: localState.coins });
+    });
+    window.addEventListener("practice-restore", function () {
+        if (!practiceCheckpoint) return;
+        var saved = JSON.parse(practiceCheckpoint);
+        localState.players = saved.players;
+        localState.coins = saved.coins;
+        syncMeshes();
+        updateScore();
+    });
+
+    function practiceMove(dx, dy) {
+        if (!practiceEnabled) return;
+        var me = localState.players[MY_ID];
+        var x = Math.max(0, Math.min(GRID_SIZE - 1, me.x + dx));
+        var y = Math.max(0, Math.min(GRID_SIZE - 1, me.y + dy));
+        if (x === me.x && y === me.y) return;
+        me.x = x;
+        me.y = y;
+        me.moves_left -= 1;
+        me.trajectory.push([x, y]);
+        localState.coins = localState.coins.filter(function (coin) {
+            if (coin.x === x && coin.y === y) {
+                me.coins += 1;
+                return false;
+            }
+            return true;
+        });
+        syncMeshes();
+        updateScore();
+        window.dispatchEvent(new CustomEvent("practice-move", { detail: me }));
+    }
+
     function tryMove(dx, dy) {
         if (
             timerExpired
             || timerRemaining <= 0
+            || movesLeft() <= 0
             || (window.foragingGame && window.foragingGame.isRoundOver())
         ) {
             return;
         }
-        stats.moves += 1;
+        if (PRACTICE) {
+            practiceMove(dx, dy);
+            return;
+        }
         sendMessage({
             type: "move",
             room_id: ROOM_ID,
@@ -517,6 +757,10 @@
                 coins_collected: stats.coins_collected,
                 collected_coin_coordinates: stats.collected_coin_coordinates,
                 moves: stats.moves,
+                moves_bought: stats.moves_bought,
+                moves_left: stats.moves_left,
+                trajectory: stats.trajectory,
+                terrain: TERRAIN,
                 room_id: ROOM_ID,
             };
         },
@@ -537,9 +781,14 @@
     };
 
     function boot() {
-        initCountdownSound();
         initThree();
-        connectSocket();
+        if (PRACTICE) {
+            localState.coins = PRACTICE_COINS;
+            syncMeshes();
+            updateScore();
+        } else {
+            connectSocket();
+        }
         bindControls();
     }
 

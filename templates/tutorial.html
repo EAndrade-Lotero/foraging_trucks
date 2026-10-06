@@ -1,0 +1,127 @@
+{% macro tutorial_steps(config) %}
+{# Step-by-step tutorial in the style of Andrade's nested_games tutorial: one instruction at a
+   time, the participant does it, a Check gives Correct/Incorrect, and the page only advances
+   when every step is passed. Step types: info, slider, board (practice board), quiz. #}
+<style>
+    #tut-panel {
+        background: #fffbea;
+        border: 1px solid #e8c766;
+        border-radius: 8px;
+        padding: 1rem 1.1rem;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+        font-size: 1rem;
+        line-height: 1.5;
+    }
+    #tut-progress { font-size: 0.85rem; color: #8a6d00; font-weight: 600; letter-spacing: 0.02em;
+        text-transform: uppercase; margin-bottom: 0.5rem; }
+    #tut-text { margin-bottom: 0.6rem; }
+    .tut-option { display: flex; gap: 8px; align-items: baseline; padding: 6px 0; cursor: pointer; }
+    #tut-feedback { margin: 0.5rem 0; min-height: 1.2rem; }
+    #tut-feedback.ok { color: #1e7b34; }
+    #tut-feedback.bad { color: #b02a37; }
+    #tut-restart { margin-left: 0; }
+    #tut-button, #tut-restart { margin-top: 0.4rem; }
+    #tut-options:empty { display: none; }
+</style>
+
+<div id="tut-panel">
+    <div id="tut-progress"></div>
+    <div id="tut-text"></div>
+    <div id="tut-options"></div>
+    <div id="tut-feedback"></div>
+    <button type="button" id="tut-button" class="btn btn-primary">Check</button>
+    <button type="button" id="tut-restart" class="btn btn-outline-secondary" style="display:none">Restart this step</button>
+</div>
+
+<script>
+(function () {
+    var STEPS = {{ config.steps | tojson }};
+    var step = 0;
+    var passed = false;
+    var mistakes = 0;
+    var attempts = {};  // wrong answers per step, for the data
+
+    function el(id) { return document.getElementById(id); }
+
+    function render() {
+        var s = STEPS[step];
+        passed = false;
+        el("tut-progress").textContent = "Step " + (step + 1) + " of " + STEPS.length;
+        el("tut-text").innerHTML = s.text;
+        el("tut-feedback").innerHTML = "";
+        el("tut-feedback").className = "";
+        el("tut-options").innerHTML = (s.options || []).map(function (option, k) {
+            return '<label class="tut-option"><input type="radio" name="tut-q" value="' + k + '"> '
+                + option + "</label>";
+        }).join("");
+        var button = el("tut-button");
+        button.style.display = s.type === "board" ? "none" : "";
+        button.textContent = s.type === "info" ? "Continue" : (s.type === "quiz" ? "Check answer" : "Check");
+        el("tut-restart").style.display = s.type === "board" ? "" : "none";
+        // The practice board only moves while a board step is active.
+        window.dispatchEvent(new CustomEvent("practice-enable", { detail: s.type === "board" }));
+        if (s.type === "board") {
+            window.dispatchEvent(new CustomEvent("practice-checkpoint"));
+        }
+    }
+
+    function feedback(ok, explanation) {
+        var box = el("tut-feedback");
+        box.className = ok ? "ok" : "bad";
+        box.innerHTML = ok
+            ? "<strong>Correct.</strong> " + (explanation || "")
+            : "<strong>Incorrect.</strong> " + (STEPS[step].hint || "") + " Please try again.";
+        if (ok) {
+            passed = true;
+            el("tut-restart").style.display = "none";
+            window.dispatchEvent(new CustomEvent("practice-enable", { detail: false }));
+            el("tut-button").style.display = "";
+            el("tut-button").textContent = "Continue";
+        } else {
+            mistakes += 1;
+            attempts[step + 1] = (attempts[step + 1] || 0) + 1;
+        }
+    }
+
+    function next() {
+        step += 1;
+        if (step >= STEPS.length) {
+            el("tut-button").disabled = true;
+            psynet.nextPage({ passed: true, mistakes: mistakes, wrong_by_step: attempts });
+            return;
+        }
+        render();
+    }
+
+    function check() {
+        var s = STEPS[step];
+        if (passed || s.type === "info") return next();
+        if (s.type === "slider") {
+            var value = parseFloat(el(s.slider).value);
+            feedback(Math.abs(value - s.target) < 1e-6, s.explanation);
+        } else if (s.type === "quiz") {
+            var choice = document.querySelector('input[name="tut-q"]:checked');
+            if (!choice) {
+                el("tut-feedback").textContent = "Choose an answer first.";
+                return;
+            }
+            feedback(parseInt(choice.value, 10) === s.correct, s.explanation);
+        }
+    }
+
+    // Practice-board steps pass by themselves when the participant's truck meets the condition.
+    window.addEventListener("practice-move", function (event) {
+        var s = STEPS[step];
+        if (!s || s.type !== "board" || passed) return;
+        if (new Function("me", "return " + s.check)(event.detail)) feedback(true, s.explanation);
+    });
+
+    el("tut-button").addEventListener("click", check);
+    // Undo the moves of the current board step (e.g. after pressing the wrong arrow).
+    el("tut-restart").addEventListener("click", function () {
+        window.dispatchEvent(new CustomEvent("practice-restore"));
+    });
+    render();
+})();
+</script>
+{% endmacro %}

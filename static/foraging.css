@@ -1,0 +1,215 @@
+/* Shared look for every page of the experiment (Experiment.css_links). */
+
+/* One reading column, same axis on every page. */
+#main-body {
+    max-width: 1000px;
+}
+
+/* Comfortable line length; tables, sliders and the board share the same left edge. */
+#main-body p {
+    max-width: 46rem;
+}
+
+#main-body h3 {
+    font-size: 1.6rem;
+    font-weight: 600;
+    margin-bottom: 0.9rem;
+}
+
+#main-body p,
+#main-body li {
+    font-size: 1rem;
+    line-height: 1.55;
+}
+
+#main-body ol,
+#main-body ul {
+    padding-left: 1.4rem;
+}
+
+#main-body li {
+    margin-bottom: 0.35rem;
+}
+
+/* The value a slider is showing right now. */
+.live-value {
+    max-width: 480px;
+    text-align: center;
+    font-size: 1.2rem;
+    font-weight: 600;
+    margin: 0.8rem 0 0.4rem;
+}
+
+/* Points tables: split, score and summary. */
+.points-table {
+    width: 100%;
+    max-width: 600px;
+    margin: 0.6rem 0 1rem;
+    table-layout: fixed;
+    border-collapse: collapse;
+    font-variant-numeric: tabular-nums;
+}
+
+.points-table th,
+.points-table td {
+    padding: 0.55rem 0.75rem;
+    border-bottom: 1px solid #e3e6ea;
+    vertical-align: top;
+}
+
+.points-table td.num,
+.points-table th.num {
+    text-align: right;
+    white-space: nowrap;
+    width: 18%;
+}
+
+.points-table tr.total th,
+.points-table tr.total td {
+    background: #f3f6fa;
+    border-top: 2px solid #c9d1db;
+    font-weight: 700;
+}
+
+.points-table .note {
+    display: block;
+    font-size: 0.875rem;
+    line-height: 1.45;
+    color: #495057;
+}
+
+.points-table tr.final td {
+    font-size: 1.4rem;
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+}
+
+/* Every slider (PsyNet's and the tutorials') looks the same. */
+#main-body input[type=range] {
+    width: 100%;
+    max-width: 480px;
+    display: block;
+    margin: 1rem 0 0;
+}
+
+/* Slider end labels and ticks (slider_frame). */
+.slider-ends {
+    display: flex;
+    justify-content: space-between;
+    max-width: 480px;
+    margin: 0.2rem 0 0;
+    font-size: 0.9rem;
+    line-height: 1.4;
+    color: #495057;
+}
+
+.slider-ends span {
+    max-width: 45%;
+}
+
+.slider-ends span:last-child {
+    text-align: right;
+}
+
+.slider-ends small {
+    display: block;
+    font-size: 0.875rem;
+    color: #495057;
+}
+
+.slider-ticks {
+    position: relative;
+    height: 5px;
+    margin: 0 0 0 11px;
+    max-width: calc(480px - 22px);
+}
+
+.slider-ticks span {
+    position: absolute;
+    top: 0;
+    width: 1px;
+    height: 5px;
+    background: #b8bfc6;
+}
+
+/* Tutorial: the instruction box gets its own column instead of floating over the page. */
+#main-body:has(#tut-panel) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 300px;
+    column-gap: 32px;
+    align-items: start;
+}
+
+#main-body:has(#tut-panel) > * {
+    grid-column: 1;
+}
+
+#main-body:has(#tut-panel) > #tut-panel {
+    grid-column: 2;
+    grid-row: 1 / span 6;
+    position: sticky;
+    top: 24px;
+}
+
+@media (max-width: 1000px) {
+    #main-body:has(#tut-panel) {
+        display: block;
+    }
+}
+
+/* PsyNet chrome: thinner progress bar, quieter reward footer. */
+.header .progress {
+    height: 6px;
+}
+
+#timeline-progress-bar {
+    font-size: 0;
+}
+
+#footer {
+    background: #f8f9fa !important;
+    border-top: 1px solid #e9ecef;
+    font-size: 0.85rem;
+    color: #6c757d;
+}
+
+/* PsyNet's wait page fills the whole window, so it keeps the default width. */
+/* PsyNet's wait page, recoloured to match the other pages instead of a full-screen gradient. */
+#wait-page.colorfadeanim {
+    background: #f8f9fa;
+    animation: none;
+    color: #212529;
+    border: 1px solid #e3e6ea;
+    border-radius: 8px;
+    height: auto !important;
+    min-height: 40vh;
+    align-items: center;
+    margin: 2rem 0 0;
+}
+
+/* PsyNet's wait template zeroes the page margins; keep the shared column. */
+body #main-body:has(#wait-page) {
+    margin: 0 auto !important;
+    padding: 0 1rem !important;
+}
+
+#wait-page h1,
+#wait-page h2,
+#wait-page h3,
+#wait-page p {
+    font-size: 1.4rem !important;
+    font-weight: 600;
+    color: #212529;
+}
+
+.live-note {
+    font-weight: 400;
+    font-size: 1rem;
+    margin-bottom: 0.2rem;
+}
+
+/* A live table under a slider (propose page) lines up with the other tables. */
+.live-value:has(table) {
+    max-width: 600px;
+    text-align: left;
+}

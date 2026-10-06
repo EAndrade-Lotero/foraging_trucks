@@ -2,7 +2,7 @@
 
 Runs World.create_random_coins from EAndrade-Lotero/Coordinator_and_Foragers (helper_classes.py,
 uniform random coins) on his 80x80 world and writes an 80x80 map; tools/generate_maps.py then
-scales it to 10x10 like his other maps:
+scales it like his other maps (add --size 16 for the 16x16 board):
 
     git clone https://github.com/EAndrade-Lotero/Coordinator_and_Foragers /tmp/coord
     cd /tmp/coord && uv run --with numpy --with matplotlib --with pillow \\

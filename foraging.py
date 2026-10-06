@@ -12,7 +12,7 @@ from psynet.participant import Participant
 from psynet.timeline import NullElt, WebSocketElt
 
 
-GRID_SIZE = 10
+GRID_SIZE = 16
 MIN_PLAYERS = 2
 MAX_PLAYERS = 10
 FORAGING_DURATION = 60
@@ -35,23 +35,31 @@ PLAYER_COLORS = [
     "#6c5ce7",
 ]
 
-SPAWN_POSITIONS = [
-    (0, 0),
-    (9, 0),
-    (0, 9),
-    (9, 9),
-    (4, 0),
-    (5, 9),
-    (0, 4),
-    (9, 5),
-    (4, 4),
-    (5, 5),
-]
+def _spawn_positions(size: int) -> list:
+    """Corners, then edge midpoints, then the centre. Matches the old 10x10 layout."""
+    last = size - 1
+    mid = size // 2
+    return [
+        (0, 0),
+        (last, 0),
+        (0, last),
+        (last, last),
+        (mid - 1, 0),
+        (mid, last),
+        (0, mid - 1),
+        (last, mid),
+        (mid - 1, mid - 1),
+        (mid, mid),
+    ]
 
-# Round terrains: Andrade's Coordinator_and_Foragers maps scaled to 10x10
-# (tools/generate_maps.py): abundant and concentrated first, then scattered and scarce
+
+SPAWN_POSITIONS = _spawn_positions(GRID_SIZE)
+
+# Round terrains: Andrade's Coordinator_and_Foragers maps scaled from 80x80 to 16x16
+# (tools/generate_maps.py --size 16; andrade16_map0 to map15 are all available):
+# abundant and concentrated first, then scattered and scarce
 # (made with Andrade's own generator, tools/generate_scattered_map.py).
-ROUND_TERRAINS = ["andrade10_map12", "andrade10_map_scattered"]
+ROUND_TERRAINS = ["andrade16_map12", "andrade16_map_scattered"]
 
 # FORAGING_VARIANT=trucks: 3D trucks and spinning coins on Andrade's Coordinator_and_Foragers
 # maps (scaled from 80x80 to 20x20), with both trucks leaving from a shared base at the centre.
@@ -112,6 +120,76 @@ def _patch_dallinger_redis_pubsub_listener():
 
 
 _patch_dallinger_redis_pubsub_listener()
+
+
+def _patch_dallinger_chat_backend_resubscribe():
+    """Keep the experiment subscribed to its channels after a debug-server reload.
+
+    Dallinger subscribes the experiment to its Redis channels only in ``/launch``,
+    in memory. ``psynet debug local`` runs Flask with the reloader, so saving a file
+    restarts the web process and drops those subscriptions: browsers reconnect, but
+    their messages (join_room, move) are relayed to nobody and the game freezes.
+    Here, when a browser subscribes to a channel in a process where the experiment
+    is not subscribed yet, we subscribe it. Debug mode only: in production, with
+    several web processes, this would make every message be handled once per process.
+    """
+    try:
+        from dallinger.experiment_server import sockets
+    except ImportError:
+        return
+
+    if getattr(sockets.ChatBackend, "_resubscribe_patch", False):
+        return
+
+    original_subscribe = sockets.ChatBackend.subscribe
+
+    def ensure_experiment_subscribed(backend):
+        from dallinger.config import get_config
+        from dallinger.experiment import Experiment as DallingerExperiment
+        from psynet.experiment import get_experiment
+
+        config = get_config()
+        if not config.ready:
+            config.load()
+        if config.get("mode") != "debug":
+            return
+
+        exp = get_experiment()
+        # The control channel (disconnect events), the experiment's own channel and
+        # the WebSocketElt channels (foraging_game).
+        channel_names = dict.fromkeys(
+            name
+            for name in [
+                sockets.CONTROL_CHANNEL,
+                exp.channel,
+                *getattr(exp, "_websocket_message_handlers", {}),
+            ]
+            if name is not None
+        )
+
+        for name in channel_names:
+            channel = backend.channels.get(name)
+            already = channel is not None and any(
+                isinstance(client, DallingerExperiment) for client in channel.clients
+            )
+            if not already:
+                original_subscribe(backend, exp, name)
+
+    def subscribe(self, client, channel_name):
+        original_subscribe(self, client, channel_name)
+        if isinstance(client, sockets.Client):
+            try:
+                ensure_experiment_subscribed(self)
+            except Exception:
+                sockets.app.logger.exception(
+                    "Could not re-subscribe the experiment to its websocket channels."
+                )
+
+    sockets.ChatBackend.subscribe = subscribe
+    sockets.ChatBackend._resubscribe_patch = True
+
+
+_patch_dallinger_chat_backend_resubscribe()
 
 
 def last_valid_answer(participant: Participant, label: str):
@@ -200,10 +278,18 @@ class EnableForaging(NullElt, WebSocketElt):
         elif msg_type == "move":
             if participant is None:
                 return
-            room = self._rooms.get(room_id)
-            if room is None:
-                return
             pid_str = str(participant.id)
+            room = self._rooms.get(room_id)
+            if room is None or pid_str not in room["players"]:
+                # The join_room message was lost or the server state was reset (e.g.
+                # the debug server reloaded): join now rather than dropping the move.
+                room = self._ensure_room(
+                    room_id,
+                    data.get("grid_size", GRID_SIZE),
+                    data.get("terrain", "abundant"),
+                )
+                self._ensure_round_started(room, receive_time)
+                self._register_player(room, participant)
             if pid_str not in room["connected"]:
                 return
             player = room["players"].get(pid_str)

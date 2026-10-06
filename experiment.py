@@ -21,6 +21,7 @@ from .foraging import (
     ForagingPage,
     last_valid_answer,
 )
+from .game_parameters import INCLUDE_TUTORIAL
 from .tutorial import (
     CONTRACT_ENDS,
     buying_moves_tutorial,
@@ -476,16 +477,30 @@ class Exp(psynet.experiment.Experiment):
                 """
                 <h3>Welcome</h3>
                 <p>In this game you team up with another player to collect coins.</p>
+                """
+                + (
+                    """
                 <p>First, three short tutorials show you how to play. Then we pair you
                 with a partner.</p>
                 """
+                    if INCLUDE_TUTORIAL
+                    else """
+                <p>Next we pair you with a partner, and then the game starts.</p>
+                """
+                )
             ),
             time_estimate=10,
         ),
-        tutorial_page(),
-        buying_moves_tutorial(),
-        moving_tutorial(),
-        contract_tutorial(SPLIT_JS, split_parts, FIXED_COST, COIN_POINTS),
+        *(
+            [
+                tutorial_page(),
+                buying_moves_tutorial(),
+                moving_tutorial(),
+                contract_tutorial(SPLIT_JS, split_parts, FIXED_COST, COIN_POINTS),
+            ]
+            if INCLUDE_TUTORIAL
+            else []
+        ),
         SimpleGrouper(
             GROUP_TYPE,
             initial_group_size=MIN_PLAYERS,

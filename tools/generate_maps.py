@@ -7,7 +7,13 @@ Maps are fixed and seeded so every dyad sees the same terrain in a given round.
     python tools/generate_maps.py            # regenerate with the default seed
     python tools/generate_maps.py --show     # also print the maps as ASCII
     python tools/generate_maps.py --andrade DIR  # Andrade's 80x80 map*.json -> 10x10 andrade10_*
+    python tools/generate_maps.py --andrade DIR --size 16  # -> 16x16 andrade16_* (pac-man board)
     python tools/generate_maps.py --andrade DIR --size 20  # -> 20x20 andrade_* (trucks variant)
+
+Andrade's maps (DIR is static/ in EAndrade-Lotero/Coordinator_and_Foragers) were made with
+World.create_and_place_coins, which samples coins from bivariate normals around centroids laid
+out by World.get_centroids (circular, linear_up, linear_down or random). The per-map biases were
+not recorded, so the saved 80x80 maps are scaled instead of regenerated.
 """
 import argparse
 import json
@@ -43,17 +49,26 @@ def generate(n_coins: int, n_centroids: int, dispersion: float, rng) -> list:
     return sorted(coins)
 
 
+def corners(size: int) -> set:
+    return {(0, 0), (size - 1, 0), (0, size - 1), (size - 1, size - 1)}
+
+
 def scale_andrade(path: Path, size: int, source_size: int = 80) -> list:
     """Coordinator_and_Foragers maps are lists of (x, y) coins on an 80x80 world.
 
-    Scaling keeps their shape (shifted circular clusters or lines); on the 10x10 board the
-    start corners stay free.
+    Each factor x factor block becomes one cell, which keeps their shape (shifted circular
+    clusters or lines). On the pac-man boards the start corners stay free; the trucks variant
+    (20x20) starts at the centre instead.
     """
     factor = source_size // size
     coins = {(x // factor, y // factor) for x, y in json.loads(path.read_text())}
-    if size == GRID_SIZE:
-        coins -= BLOCKED
+    if size != 20:
+        coins -= corners(size)
     return sorted(coins)
+
+
+def andrade_prefix(size: int) -> str:
+    return "andrade" if size == 20 else f"andrade{size}"
 
 
 def ascii_map(coins: list, size: int = GRID_SIZE) -> str:
@@ -74,7 +89,7 @@ def main():
 
     if args.andrade:
         OUT_DIR.mkdir(parents=True, exist_ok=True)
-        prefix = "andrade10" if args.size == GRID_SIZE else "andrade"
+        prefix = andrade_prefix(args.size)
         for path in sorted(args.andrade.glob("map*.json")):
             coins = scale_andrade(path, args.size)
             (OUT_DIR / f"{prefix}_{path.stem}.json").write_text(json.dumps(coins))

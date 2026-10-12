@@ -27,20 +27,19 @@
         margin: calc(var(--dot, 20px) / -2) 0 0 calc(var(--dot, 20px) / -2); box-sizing: border-box;
         border-radius: 50%; background: #00008a; border: var(--ring, 4px) solid; box-shadow: 0 0 0 2px #0b0b0b;
         transition: left 0.6s cubic-bezier(.3,.7,.3,1), top 0.6s cubic-bezier(.3,.7,.3,1), box-shadow 0.3s; }
+    .split-scene .ss-dot.theirs::after { content: ""; position: absolute; left: 50%; top: 50%;
+        width: 34%; height: 34%; transform: translate(-50%, -50%); border-radius: 50%; background: #fff; }
+    .split-scene .ss-count .ss-was { display: block; font-size: 0.62rem; font-weight: 500; color: #9aa; }
     .split-scene .ss-dot.half-keep { clip-path: inset(0 50% 0 0); }
     .split-scene .ss-dot.half-give { clip-path: inset(0 0 0 50%); }
     .split-scene .ss-dot.moved { box-shadow: 0 0 0 2px #0b0b0b, 0 0 12px 3px #ffffffaa; }
     .split-legend { display: flex; flex-wrap: wrap; gap: 0.3rem 1rem; font-size: 0.8rem; color: #666; }
-    .split-legend i { display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #00008a;
-        border: 3px solid; vertical-align: -2px; margin-right: 4px; }
+    .split-legend i { position: relative; display: inline-block; width: 12px; height: 12px; border-radius: 50%;
+        background: #00008a; border: 3px solid; vertical-align: -2px; margin-right: 4px; }
+    .split-legend i.theirs::after { content: ""; position: absolute; left: 50%; top: 50%; width: 4px; height: 4px;
+        transform: translate(-50%, -50%); border-radius: 50%; background: #fff; }
     .split-caption { text-align: center; color: #555; font-size: 0.92rem; margin-top: 0.3rem; min-height: 1.3em; }
     .split-caption strong { color: #111; }
-    .split-mini { display: inline-grid; gap: 3px; background: #0b0b0b; padding: 8px 10px; border-radius: 8px;
-        vertical-align: middle; }
-    .split-mini div { display: flex; gap: 2px; align-items: center; }
-    .split-mini em { font-style: normal; font-size: 0.7rem; width: 46px; color: #ddd; }
-    .split-mini b { width: 9px; height: 9px; border-radius: 50%; background: #00008a; border: 2px solid;
-        display: inline-block; }
     `;
     if (!document.getElementById("split-scene-css")) {
         var style = document.createElement("style");
@@ -50,12 +49,11 @@
     }
 
     // The game's rule (experiment.py, transfer()): the player who collected more gives
-    // contract * gap / 2 points to the other, counted in moves and rounded to a whole move.
-    // Returned in points, to the nearest half point, which is what the scene can draw.
-    function transfer(w, own, other, pointMoves) {
-        var pm = pointMoves || 6, gap = w * (own - other) * pm / 2;
-        var moves = Math.floor(Math.abs(gap) + 0.5 + 1e-9) * (gap >= 0 ? 1 : -1);
-        return Math.round(moves / pm * 2) / 2;
+    // contract * gap / 2 points to the other, rounded to the nearest half point. The scene
+    // draws half points, so it shows exactly what is paid.
+    function transfer(w, own, other) {
+        var halves = w * (own - other);
+        return Math.floor(Math.abs(halves) + 0.5 + 1e-9) * (halves >= 0 ? 1 : -1) / 2;
     }
 
     function amount(n) {
@@ -91,8 +89,8 @@
             + '<div class="ss-lane" style="top:' + (laneY.partner - 23) + 'px"></div>'
             + '<div class="ss-equal" data-row="you" style="top:' + (laneY.you - 15) + 'px"><span>equal</span></div>'
             + '<div class="ss-equal" data-row="partner" style="top:' + (laneY.partner - 15) + 'px"><span>equal</span></div>'
-            + '<div class="ss-count" data-row="you" style="top:' + (laneY.you - 18) + 'px">0<small>points</small></div>'
-            + '<div class="ss-count" data-row="partner" style="top:' + (laneY.partner - 18) + 'px">0<small>points</small></div>';
+            + '<div class="ss-count" data-row="you" style="top:' + (laneY.you - 18) + 'px">0<small>points</small><span class="ss-was"></span></div>'
+            + '<div class="ss-count" data-row="partner" style="top:' + (laneY.partner - 18) + 'px">0<small>points</small><span class="ss-was"></span></div>';
         var dots = [], have = {you: 0, partner: 0}, contract = 0, x0 = 100, gap = 26, halfEl = null;
 
         // Spacing and dot size so that a full row (everything both collected) stays clear of
@@ -115,7 +113,7 @@
             ["you", "partner"].forEach(function (who) {
                 for (var i = 0; i < have[who]; i++) {
                     var el = document.createElement("div");
-                    el.className = "ss-dot";
+                    el.className = who === "partner" ? "ss-dot theirs" : "ss-dot";
                     el.style.borderColor = c[who];
                     el.style.left = (x0 + i * gap) + "px";
                     el.style.top = laneY[who] + "px";
@@ -141,7 +139,7 @@
 
         function set(w, animate) {
             contract = Math.max(0, Math.min(1, Number(w) || 0));
-            var t = transfer(contract, have.you, have.partner, opts.pointMoves);
+            var t = transfer(contract, have.you, have.partner);
             var giver = t >= 0 ? "you" : "partner", taker = giver === "you" ? "partner" : "you";
             var whole = Math.floor(Math.abs(t)), half = Math.abs(t) - whole > 0.25;
             var own = dots.filter(function (d) { return d.owner === giver; });
@@ -162,7 +160,7 @@
             if (half) {
                 if (!halfEl) {
                     halfEl = document.createElement("div");
-                    halfEl.className = "ss-dot half-give moved";
+                    halfEl.className = "ss-dot half-give moved" + (giver === "partner" ? " theirs" : "");
                     root.appendChild(halfEl);
                 }
                 halfEl.style.borderColor = c[giver];
@@ -182,6 +180,9 @@
                 var counter = root.querySelector('.ss-count[data-row="' + who + '"]');
                 var before = counter.firstChild.nodeValue, now = amount(counts[who]);
                 counter.firstChild.nodeValue = now;
+                // What this player collected, while the contract shows a different number.
+                counter.querySelector(".ss-was").textContent =
+                    counts[who] !== have[who] ? "collected " + have[who] : "";
                 if (animate && before !== now) {
                     counter.classList.add("bump");
                     setTimeout(function () { counter.classList.remove("bump"); }, 250);
@@ -214,7 +215,7 @@
     SplitScene.legend = function (opts) {
         var c = colors(opts || {});
         return '<div class="split-legend"><span><i style="border-color:' + c.you + '"></i>collected by you</span>'
-            + '<span><i style="border-color:' + c.partner + '"></i>collected by your partner</span>'
+            + '<span><i class="theirs" style="border-color:' + c.partner + '"></i>collected by your partner (white centre)</span>'
             + "<span>glowing points were moved by the contract</span></div>";
     };
     SplitScene.transfer = transfer;

@@ -282,6 +282,7 @@ class EnableForaging(NullElt, WebSocketElt):
                 continue
             room["connected"].discard(pid_str)
             room["players"][pid_str]["connected"] = False
+            cls._log_connection(room, pid_str, "disconnected")
             cls._broadcast_state_for_room(experiment, room_id)
 
     def handle_message(
@@ -293,6 +294,8 @@ class EnableForaging(NullElt, WebSocketElt):
             return
 
         msg_type = data.get("type")
+        if participant is not None and participant.sync_group is None:
+            return  # no longer in a pair (out of moves or taken out): nothing to play
 
         if msg_type in ("join_room", "request_state"):
             if participant is not None:
@@ -302,7 +305,7 @@ class EnableForaging(NullElt, WebSocketElt):
                     data.get("terrain", "abundant"),
                 )
                 self._ensure_round_started(room, receive_time)
-                self._register_player(room, participant)
+                self._register_player(room, participant, receive_time)
                 self._prune_failed_players(room, participant)
                 self._broadcast_state(experiment, room_id)
 
@@ -327,7 +330,7 @@ class EnableForaging(NullElt, WebSocketElt):
                     data.get("terrain", "abundant"),
                 )
                 self._ensure_round_started(room, receive_time)
-                self._register_player(room, participant)
+                self._register_player(room, participant, receive_time)
             if pid_str not in room["connected"]:
                 return
             player = room["players"].get(pid_str)
@@ -347,7 +350,8 @@ class EnableForaging(NullElt, WebSocketElt):
             player["x"], player["y"] = x, y
             player["moves_left"] -= 1
             player["trajectory"].append([x, y])
-            self._collect_coin(room, player)
+            player.setdefault("move_times", [0.0]).append(self._round_time(room, receive_time))
+            self._collect_coin(room, player, receive_time)
             self._broadcast_state(experiment, room_id)
 
     def _ensure_room(
@@ -364,6 +368,21 @@ class EnableForaging(NullElt, WebSocketElt):
                 "round_started_at": None,
             }
         return self._rooms[room_id]
+
+    @staticmethod
+    def _round_time(room: dict, receive_time=None) -> float:
+        """Seconds since the round started, on the server clock shared by both players."""
+        now = receive_time.timestamp() if receive_time is not None else time.time()
+        started = room.get("round_started_at")
+        return round(now - started, 3) if started is not None else 0.0
+
+    @classmethod
+    def _log_connection(cls, room: dict, pid_str: str, event: str, receive_time=None):
+        player = room["players"].get(pid_str)
+        if player is not None:
+            player.setdefault("connection_events", []).append(
+                {"t": cls._round_time(room, receive_time), "event": event}
+            )
 
     def _ensure_round_started(self, room: dict, receive_time):
         if room["round_started_at"] is not None:
@@ -399,29 +418,39 @@ class EnableForaging(NullElt, WebSocketElt):
             "moves_bought": moves,
             "moves_left": moves,
             "trajectory": [[spawn[0], spawn[1]]],
+            # Seconds since the round started for each trajectory entry (the spawn is 0), and
+            # every disconnection/reconnection, on the server clock (both players share it).
+            "move_times": [0.0],
+            "connection_events": [],
             "connected": True,
         }
 
-    def _register_player(self, room: dict, participant: Participant):
+    def _register_player(self, room: dict, participant: Participant, receive_time=None):
         pid_str = str(participant.id)
         room["connected"].add(pid_str)
         if pid_str in room["players"]:
             # Rejoining after a dropped connection: keep position, coins and moves.
+            if not room["players"][pid_str].get("connected", True):
+                self._log_connection(room, pid_str, "reconnected")
             room["players"][pid_str]["connected"] = True
             return
         idx = active_participant_ids(participant).index(participant.id)
-        # Moves come from the validated answer in the database, not from the client.
+        # Moves come from the server, not from the client: the investment experiment.py
+        # validated against the bank (participant.var "invested").
         try:
-            moves = round(float(last_valid_answer(participant, "buy_moves") or 0))
+            moves = round(float(participant.var.get("invested", 0) or 0))
         except (TypeError, ValueError):
             moves = 0
         room["players"][pid_str] = self._player_state(room["id"], idx, min(max(moves, 0), MAX_MOVES))
+        # A player who joins after the round started is placed on the board at that moment.
+        room["players"][pid_str]["move_times"] = [self._round_time(room, receive_time)]
 
     def _mark_left(self, room: dict, participant_id: int):
         pid_str = str(participant_id)
         room["connected"].discard(pid_str)
         if pid_str in room["players"]:
             room["players"][pid_str]["connected"] = False
+            self._log_connection(room, pid_str, "left")
 
     def _prune_failed_players(self, room: dict, participant: Participant):
         # Only failed participants disappear; disconnected ones stay on the board.
@@ -431,13 +460,13 @@ class EnableForaging(NullElt, WebSocketElt):
                 room["connected"].discard(pid_str)
                 room["players"].pop(pid_str, None)
 
-    def _collect_coin(self, room: dict, player: dict):
+    def _collect_coin(self, room: dict, player: dict, receive_time=None):
         for coin in room["coins"]:
             if coin["x"] == player["x"] and coin["y"] == player["y"]:
                 room["coins"].remove(coin)
                 player["coins"] += 1
                 player.setdefault("collected_coin_coordinates", []).append(
-                    {"x": coin["x"], "y": coin["y"]}
+                    {"x": coin["x"], "y": coin["y"], "t": self._round_time(room, receive_time)}
                 )
                 break
 
@@ -500,6 +529,8 @@ EMPTY_STATS = {
     "moves": 0,
     "collected_coin_coordinates": [],
     "trajectory": [],
+    "move_times": [],
+    "connection_events": [],
 }
 
 

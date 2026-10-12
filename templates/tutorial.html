@@ -55,7 +55,8 @@
                 + option + "</label>";
         }).join("");
         var button = el("tut-button");
-        button.style.display = s.type === "board" ? "none" : "";
+        // Board and slider steps pass by themselves; the button appears once they do.
+        button.style.display = (s.type === "board" || s.type === "slider") ? "none" : "";
         button.textContent = s.type === "info" ? "Continue" : (s.type === "quiz" ? "Check answer" : "Check");
         el("tut-restart").style.display = s.type === "board" ? "" : "none";
         // The practice board only moves while a board step is active.
@@ -71,11 +72,14 @@
     function feedback(ok, explanation) {
         var box = el("tut-feedback");
         box.className = ok ? "ok" : "bad";
+        var done = STEPS[step].type === "quiz" ? "Correct." : "Done.";
         box.innerHTML = ok
-            ? "<strong>Correct.</strong> " + (explanation || "")
+            ? "<strong>" + done + "</strong> " + (explanation || "")
             : "<strong>Incorrect.</strong> " + (STEPS[step].hint || "") + " Please try again.";
         if (ok) {
             passed = true;
+            // Pages can react, e.g. animate the answer to a prediction question.
+            window.dispatchEvent(new CustomEvent("tutorial-passed", { detail: STEPS[step] }));
             el("tut-restart").style.display = "none";
             window.dispatchEvent(new CustomEvent("practice-enable", { detail: false }));
             el("tut-button").style.display = "";

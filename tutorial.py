@@ -91,11 +91,14 @@ def range_input(slider_id: str, maximum: float, step: float, value: float) -> st
 
 
 def buying_moves_tutorial() -> ModularPage:
+    """Investing (critiques of 12-oct): bank vs. this round's steps, unused moves are spent,
+    and running out ends your game while your partner plays on. No arithmetic."""
     prompt = Prompt(Markup(f"""
         <h3>Tutorial 1 of 3: investing moves</h3>
-        <p>Everything in this game is counted in <strong>moves</strong>. At the start of each round
-        you choose <strong>how many moves</strong> to invest from your bank. Follow the yellow box
-        on the right.</p>
+        <p>Everything in this game is counted in <strong>moves</strong>. Your <strong>bank</strong>
+        keeps your moves from round to round. At the start of each round you take some out of the
+        bank: they are the <strong>steps your pac-man can take in that round</strong>. Try the
+        slider, then follow the yellow box on the right.</p>
         {range_input("tut-moves", MAX_MOVES, MOVE_STEP, 10)}
         <div id="tut-moves-out" class="live-value"></div>
         {slider_frame("tut-moves", "0 moves", f"{MAX_MOVES} moves", MAX_MOVES // MOVE_STEP + 1, below="tut-moves-out")}
@@ -105,7 +108,7 @@ def buying_moves_tutorial() -> ModularPage:
             function show() {{
                 var v = parseInt(slider.value, 10);
                 document.getElementById("tut-moves-out").innerHTML = "You invest <strong>" + v
-                    + " moves</strong>: your pac-man can take " + v + " steps";
+                    + " moves</strong>: your pac-man can take " + v + " steps this round";
             }}
             slider.addEventListener("input", show);
             show();
@@ -114,26 +117,20 @@ def buying_moves_tutorial() -> ModularPage:
     """))
     steps = [
         dict(type="info", text=f"Practice only: nothing here changes your bank.<br>"
-             f"You start with <strong>{START_MOVES} moves</strong> in your bank. Each round you "
-             f"invest some of them (up to {MAX_MOVES}, if your bank has them): they are the "
-             "<strong>steps your pac-man can take</strong> on the board."),
-        dict(type="slider", slider="tut-moves", target=0,
-             text="Move the slider all the way to the left: <strong>0 moves</strong>.",
-             hint="Drag the slider all the way to the left.",
-             explanation="With 0 moves your pac-man stays still all round. Food is paid anyway."),
-        dict(type="slider", slider="tut-moves", target=MAX_MOVES,
-             text=f"Now all the way to the right: <strong>{MAX_MOVES} moves</strong>, the most you "
-             "can invest in one round (if you have them).",
-             hint="Drag the slider all the way to the right.",
-             explanation="More moves let you explore more of the board, but they cost more."),
-        quiz("You invest 40 moves but only use 10. What happens to the other 30?",
+             f"You start with <strong>{START_MOVES} moves</strong> in your bank. Each round you can "
+             f"invest up to {MAX_MOVES}, if your bank has them."),
+        quiz("You invest some moves for a round but do not use them all. What happens to the "
+             "moves you did not use?",
              ["They go back to your bank", "They are spent anyway", "Your partner gets them"], 1,
              "Invested moves are spent whether you use them or not, so invest what you plan to use.",
-             hint="Investing is like buying fuel before the trip."),
-        dict(type="info", text=f"After the round, the points you and your partner collected are "
-             f"shared with the contract and turned into moves ({POINT_MOVES} moves per point). Every "
-             f"round you also pay <strong>{FOOD_MOVES} moves of food</strong>. Don't worry about the "
-             "counting: the game does it and shows your bank after each round."),
+             hint="Investing is like filling the tank before a trip."),
+        quiz("After a round, your bank is empty. What happens?",
+             ["You leave the game, and your partner goes on alone",
+              "You get new moves", "Both of you leave the game"], 0,
+             f"Each round costs <strong>{FOOD_MOVES} moves of food</strong>, and the points you "
+             f"collect give you moves back ({POINT_MOVES} per point). The game does the counting "
+             "and shows your bank after every round.",
+             hint="The bank is what keeps you in the game."),
     ]
     return tutorial_page("tutorial_moves", prompt, steps)
 
@@ -175,12 +172,10 @@ def moving_tutorial() -> ModularPage:
         moves=moves,
     )
     steps = [
-        dict(type="info", text="Your pac-man is the one with the <strong>white ring</strong>; the "
-             "other one is your partner.<br>The board is <strong>dark</strong>. You only see the "
-             "<strong>lit squares around you</strong>, so points can be hiding anywhere in the dark."),
         dict(type="board", check="me.x === 2 && me.y === 6", target_cell=[2, 6],
-             text="Walk to the <strong>orange X</strong> with the arrow keys (or WASD). Watch the "
-             "light move with you.",
+             text="Your pac-man is the one with the <strong>white ring</strong>. The board is "
+             "<strong>dark</strong>: you only see the lit squares around you.<br>Walk to the "
+             "<strong>orange X</strong> with the arrow keys (&uarr; &darr; &larr; &rarr;).",
              hint="If you went the wrong way, click Restart this step.",
              explanation="Each step uses one of your moves, and the light goes with you."),
         dict(type="board", check="me.x === 4 && me.y === 7",
@@ -188,18 +183,13 @@ def moving_tutorial() -> ModularPage:
              "then step on it to collect it.",
              hint="Try the squares next to you: points only appear when they are lit.",
              explanation="You found it: points appear only when you get close."),
-        quiz("What can you see while you move?",
-             ["Every point on the board", "Points next to you, your partner and both trails",
+        quiz("What can you see during a round?",
+             ["Every point on the board",
+              "Points in the lit squares around you, plus both pac-men and their trails",
               "Only your own pac-man"], 1,
-             "Points show only in the lit squares around you; your partner and both trails are "
-             "always visible, so you can see where your partner has already searched.",
+             "A trail shows where a pac-man has been; it does not reveal hidden points. When you "
+             "have no steps left you stop, and your partner may keep moving.",
              hint="Which points could you see on the practice board?"),
-        quiz("You have no moves left but your partner still has some. What happens?",
-             ["You can keep moving", "You stop; your partner can keep moving",
-              "The round ends for both of you"], 1,
-             f"You stop. The round ends when time runs out ({FORAGING_DURATION} s), when all "
-             "points are taken, or when both of you have no moves left.",
-             hint="Each player has their own moves."),
     ]
     return tutorial_page("tutorial_board", prompt, steps)
 
@@ -221,7 +211,7 @@ def split_scene(scene_id: str, slider_id: str, you: int, partner: int, contract:
             var caption = document.getElementById("{scene_id}-caption");
             var scene = SplitScene(document.getElementById("{scene_id}"), {{
                 you: {you}, partner: {partner}, contract: {contract if play_from is None else play_from},
-                youColor: "{you_color}", partnerColor: "{partner_color}", pointMoves: {POINT_MOVES},
+                youColor: "{you_color}", partnerColor: "{partner_color}",
                 onChange: function (info) {{ caption.innerHTML = SplitScene.caption(info); }},
             }});
             caption.insertAdjacentHTML("afterend", SplitScene.legend({{
@@ -241,23 +231,6 @@ def split_scene(scene_id: str, slider_id: str, you: int, partner: int, contract:
     """
 
 
-def split_picture(you: int, partner: int, contract: float) -> str:
-    """A small still of the split scene (rows of points coloured by who collected them)."""
-    gap = contract * (you - partner) / 2
-    t = int(abs(gap) + 0.5 + 1e-9) * (1 if gap >= 0 else -1)
-
-    def row(label, own, color, received, received_color):
-        dots = f'<b style="border-color:{color}"></b>' * own
-        dots += f'<b style="border-color:{received_color}"></b>' * received
-        return f"<div><em>{label}</em>{dots}</div>"
-
-    y, p = PLAYER_COLORS[0], PLAYER_COLORS[1]
-    return ('<span class="split-mini">'
-            + row("You", you - max(t, 0), y, max(-t, 0), p)
-            + row("Partner", partner - max(-t, 0), p, max(t, 0), y)
-            + "</span>")
-
-
 def contract_tutorial() -> ModularPage:
     """The contract, shown with points that move between the two players (slides 11-13).
 
@@ -274,58 +247,55 @@ def contract_tutorial() -> ModularPage:
         {range_input("tut-contract", 1, 0.1, 0.3)}
         {slider_frame("tut-contract", *CONTRACT_ENDS, 11)}
         <script>
-        // Each step can bring a new example: {{example: [you, partner], start: contract}}.
+        // Each step can bring a new example ({{example: [you, partner], start: contract}}) and,
+        // for a prediction question, show the answer once it is given ({{reveal: contract}}).
         window.addEventListener("tutorial-step", function (event) {{
             var s = event.detail, slider = document.getElementById("tut-contract");
+            // A prediction is answered before the slider can show it.
+            slider.disabled = s.reveal !== undefined;
             if (!s.example) return;
             window["tut-scene"].example(s.example[0], s.example[1]);
             slider.value = s.start;
             window["tut-scene"].set(s.start, false);
         }});
+        window.addEventListener("tutorial-passed", function (event) {{
+            var s = event.detail, slider = document.getElementById("tut-contract");
+            if (s.reveal === undefined) return;
+            slider.disabled = false;
+            slider.value = s.reveal;
+            window["tut-scene"].set(s.reveal, true);
+        }});
         </script>
     """))
 
-    def picture(contract):
-        return split_picture(you, partner, contract)
-
     steps = [
-        dict(type="slider", slider="tut-contract", target=0, example=[you, partner], start=0.3,
+        dict(type="slider", slider="tut-contract", target=1, example=[you, partner], start=0,
              text=f"This round <strong>you collected {you} points</strong> and <strong>your partner "
-             f"{partner}</strong>. Move the slider all the way <strong>left, to Commission</strong>.",
-             hint="Drag the slider all the way to the left.",
-             explanation="With <strong>commission</strong>, everyone keeps what they collected."),
-        dict(type="slider", slider="tut-contract", target=1,
-             text="Now drag it all the way <strong>right, to Wages</strong>, and watch the points.",
+             f"{partner}</strong>. The slider is on <strong>Commission</strong>: each player keeps "
+             "what they collected. Drag it to <strong>Wages</strong> and watch the points.",
              hint="Drag the slider all the way to the right.",
-             explanation="With <strong>wages</strong>, everything is shared equally: you gave 4 points "
-             "and both rows reach the dashed line."),
-        dict(type="slider", slider="tut-contract", target=0.5,
-             text="Now put it <strong>in the middle</strong>.",
-             hint="The middle is the sixth mark.",
-             explanation="Half way, you give half as many. The closer to Wages, the more even the rows."),
-        dict(type="slider", slider="tut-contract", target=1, example=[partner, you], start=0,
-             text=f"Now the other case: <strong>you collected {partner}</strong> and <strong>your "
-             f"partner {you}</strong>. Drag the slider to <strong>Wages</strong>.",
-             hint="Drag the slider all the way to the right.",
-             explanation="Now <strong>your partner gives you</strong> points. Wages always move points "
-             "from the player who collected more to the one who collected fewer."),
-        dict(quiz(f"You collected {you} and your partner {partner}. Which picture shows "
-                  "<strong>50% wages</strong>? (You can try it with the slider.)",
-                  [picture(1), picture(0), picture(0.5)], 2,
-                  "In the middle of the slider you give half of what Wages would give.",
-                  hint="Wages make the rows equal; Commission moves nothing; the middle is in between."),
-             example=[you, partner], start=0),
-        quiz("With <strong>Wages</strong>, who ends up with more points than they collected?",
-             ["The player who collected more", "The player who collected fewer", "Nobody"], 1,
-             "With commission each player keeps what they collected; with wages, points move "
-             "from whoever collected more to whoever collected fewer.",
-             hint="Look at who received glowing points."),
-        quiz(f"The contract stays the same for {CONTRACT_BLOCK} rounds. Then you and your partner "
-             "each propose one. Which contract is used next?",
-             ["The one proposed by the richer player", "The average of the two proposals",
-              "The same one again"], 1,
-             f"The next {CONTRACT_BLOCK} rounds use the average of your two proposals. After the "
-             f"split, the game turns your points into moves for you ({POINT_MOVES} moves per point).",
-             hint="Both proposals count the same."),
+             explanation="With <strong>Wages</strong>, both players get an equal share of all the "
+             "points collected: 4 of your points moved to your partner."),
+        dict(quiz(f"Now <strong>your partner collected {you}</strong> and <strong>you "
+                  f"{partner}</strong>. If the slider were on Wages, what would happen?",
+                  ["Your partner gives you points", "You give your partner points",
+                   "No points move"], 0,
+                  "Points move from whoever collected more to whoever collected fewer.",
+                  hint="With Wages both players end up with the same number of points."),
+             example=[partner, you], start=0, reveal=1),
+        dict(quiz(f"Back to <strong>you {you}, your partner {partner}</strong>. With the slider "
+                  "<strong>in the middle</strong>, what happens?",
+                  ["No points move", "Some points move: half as many as with Wages",
+                   "All the points are shared equally"], 1,
+                  "In between, part of the way to an equal split. The game always does the counting.",
+                  hint="The middle is between keeping everything and sharing equally."),
+             example=[you, partner], start=0, reveal=0.5),
+        quiz(f"The contract stays the same for {CONTRACT_BLOCK} rounds. Then each of you proposes a "
+             "setting, and the game uses the setting <strong>halfway between your two "
+             "proposals</strong>. Who decides the next contract?",
+             ["Both of us, equally", "The player with more moves in the bank",
+              "Only the player who collected more points"], 0,
+             "Both proposals count the same. Your proposal only changes the rounds that come next.",
+             hint="Read the rule just above the question."),
     ]
     return tutorial_page("tutorial_contract", prompt, steps)

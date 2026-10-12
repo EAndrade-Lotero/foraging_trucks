@@ -119,7 +119,8 @@
     var TIMER_SECONDS = {{ config.timer_seconds }};
     var TIMER_STORAGE_KEY = "foraging_round_" + ROOM_ID;
 
-    var stats = { coins_collected: 0, moves: 0, collected_coin_coordinates: [], trajectory: [] };
+    var stats = { coins_collected: 0, moves: 0, collected_coin_coordinates: [], trajectory: [],
+        move_times: [], connection_events: [], round_started_at: null };
     var gameSocket = null;
     var leftGame = false;
     var booted = false;
@@ -494,6 +495,9 @@
             ? me.collected_coin_coordinates.slice()
             : [];
         stats.trajectory = me && me.trajectory ? me.trajectory.slice() : [];
+        stats.move_times = me && me.move_times ? me.move_times.slice() : [];
+        stats.connection_events = me && me.connection_events ? me.connection_events.slice() : [];
+        stats.round_started_at = localState.round_started_at || null;
         // Count moves from the server's trajectory: bumps into the edge are not moves.
         stats.moves = Math.max(0, stats.trajectory.length - 1);
         stats.moves_bought = me ? me.moves_bought : 0;
@@ -720,6 +724,9 @@
     var practiceCheckpoint = null;
     window.addEventListener("practice-enable", function (e) { practiceEnabled = e.detail; });
     window.addEventListener("practice-checkpoint", function () {
+        // A tutorial step never starts without moves (wandering could spend them all).
+        var me = localState.players[MY_ID];
+        if (me && me.moves_left < 10) { me.moves_left = 10; updateScore(); }
         practiceCheckpoint = JSON.stringify({ players: localState.players, coins: localState.coins });
     });
     window.addEventListener("practice-restore", function () {
@@ -808,6 +815,9 @@
                 moves_bought: stats.moves_bought,
                 moves_left: stats.moves_left,
                 trajectory: stats.trajectory,
+                move_times: stats.move_times,
+                connection_events: stats.connection_events,
+                round_started_at: stats.round_started_at,
                 terrain: TERRAIN,
                 room_id: ROOM_ID,
             };

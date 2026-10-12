@@ -15,7 +15,7 @@ INCLUDE_TUTORIAL = True
 START_MOVES = 40  # bank at the start of the game
 MAX_MOVES = 60  # most moves a player can invest in one round (option b, 12-oct)
 MOVE_STEP = 5  # the invest slider moves in steps of 5 moves
-POINT_MOVES = 6  # moves earned per point collected
+POINT_MOVES = 6  # moves earned per point collected (even: half a point is a whole number of moves)
 FOOD_MOVES = 8  # moves paid for food every round
 
 N_ROUNDS = 10

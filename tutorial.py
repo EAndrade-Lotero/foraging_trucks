@@ -19,7 +19,6 @@ from .game_parameters import (
     FOOD_MOVES,
     MAX_MOVES,
     MOVE_STEP,
-    POINT_MOVES,
     START_MOVES,
 )
 
@@ -117,20 +116,11 @@ def buying_moves_tutorial() -> ModularPage:
     """))
     steps = [
         dict(type="info", text=f"Practice only: nothing here changes your bank.<br>"
-             f"You start with <strong>{START_MOVES} moves</strong> in your bank. Each round you can "
-             f"invest up to {MAX_MOVES}, if your bank has them."),
-        quiz("You invest some moves for a round but do not use them all. What happens to the "
-             "moves you did not use?",
-             ["They go back to your bank", "They are spent anyway", "Your partner gets them"], 1,
-             "Invested moves are spent whether you use them or not, so invest what you plan to use.",
-             hint="Investing is like filling the tank before a trip."),
-        quiz("After a round, your bank is empty. What happens?",
-             ["You leave the game, and your partner goes on alone",
-              "You get new moves", "Both of you leave the game"], 0,
-             f"Each round costs <strong>{FOOD_MOVES} moves of food</strong>, and the points you "
-             f"collect give you moves back ({POINT_MOVES} per point). The game does the counting "
-             "and shows your bank after every round.",
-             hint="The bank is what keeps you in the game."),
+             f"You start with <strong>{START_MOVES} moves</strong> in your bank. Each round you "
+             f"invest some (up to {MAX_MOVES}). Moves you invest but do not use are spent anyway."),
+        dict(type="info", text=f"After each round the game adds the moves from your points and "
+             f"takes {FOOD_MOVES} moves for food. You don't need to count: the game shows your "
+             "bank.<br>If your bank runs out, you leave the game and your partner goes on alone."),
     ]
     return tutorial_page("tutorial_moves", prompt, steps)
 
@@ -182,14 +172,8 @@ def moving_tutorial() -> ModularPage:
              text="A point is hidden <strong>close to the X</strong>. Look around until you see it, "
              "then step on it to collect it.",
              hint="Try the squares next to you: points only appear when they are lit.",
-             explanation="You found it: points appear only when you get close."),
-        quiz("What can you see during a round?",
-             ["Every point on the board",
-              "Points in the lit squares around you, plus both pac-men and their trails",
-              "Only your own pac-man"], 1,
-             "A trail shows where a pac-man has been; it does not reveal hidden points. When you "
-             "have no steps left you stop, and your partner may keep moving.",
-             hint="Which points could you see on the practice board?"),
+             explanation="You found it: points appear only when you get close. You also see your "
+             "partner and where both of you have been."),
     ]
     return tutorial_page("tutorial_board", prompt, steps)
 
@@ -283,19 +267,9 @@ def contract_tutorial() -> ModularPage:
                   "Points move from whoever collected more to whoever collected fewer.",
                   hint="With Wages both players end up with the same number of points."),
              example=[partner, you], start=0, reveal=1),
-        dict(quiz(f"Back to <strong>you {you}, your partner {partner}</strong>. With the slider "
-                  "<strong>in the middle</strong>, what happens?",
-                  ["No points move", "Some points move: half as many as with Wages",
-                   "All the points are shared equally"], 1,
-                  "In between, part of the way to an equal split. The game always does the counting.",
-                  hint="The middle is between keeping everything and sharing equally."),
-             example=[you, partner], start=0, reveal=0.5),
-        quiz(f"The contract stays the same for {CONTRACT_BLOCK} rounds. Then each of you proposes a "
-             "setting, and the game uses the setting <strong>halfway between your two "
-             "proposals</strong>. Who decides the next contract?",
-             ["Both of us, equally", "The player with more moves in the bank",
-              "Only the player who collected more points"], 0,
-             "Both proposals count the same. Your proposal only changes the rounds that come next.",
-             hint="Read the rule just above the question."),
+        dict(type="info",
+             text=f"The contract stays the same for {CONTRACT_BLOCK} rounds. Then you and your "
+             "partner each propose one, and the game uses the one <strong>halfway between your two "
+             "proposals</strong>."),
     ]
     return tutorial_page("tutorial_contract", prompt, steps)

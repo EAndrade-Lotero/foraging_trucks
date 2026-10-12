@@ -19,6 +19,7 @@ from .foraging import (
     EnableForaging,
     ForagingPage,
     last_valid_answer,
+    patch_dallinger_sockets,
 )
 from .game_parameters import (
     CONTRACT_BLOCK,
@@ -527,6 +528,10 @@ trial_maker = ForagingTrialMaker(
 class Exp(psynet.experiment.Experiment):
     label = "Foraging trucks"
     css_links = ["static/foraging.css"]
+
+    def __init__(self, *args, **kwargs):
+        patch_dallinger_sockets()  # deferred from import time, see foraging.py
+        super().__init__(*args, **kwargs)
 
     def receive_message(
         self, message, channel_name=None, participant=None, node=None, receive_time=None

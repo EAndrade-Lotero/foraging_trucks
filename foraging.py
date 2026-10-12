@@ -1,6 +1,7 @@
 import json
 import os
 import random
+import sys
 import time
 from pathlib import Path
 from typing import Dict, List
@@ -130,8 +131,6 @@ def _patch_dallinger_redis_pubsub_listener():
     Channel._redis_timeout_patch = True
 
 
-_patch_dallinger_redis_pubsub_listener()
-
 
 def _patch_dallinger_chat_backend_resubscribe():
     """Keep the experiment subscribed to its channels after a debug-server reload.
@@ -200,7 +199,23 @@ def _patch_dallinger_chat_backend_resubscribe():
     sockets.ChatBackend._resubscribe_patch = True
 
 
-_patch_dallinger_chat_backend_resubscribe()
+
+def patch_dallinger_sockets():
+    """Apply both websocket patches, once, but only inside the web server.
+
+    Importing dallinger.experiment_server.sockets loads the experiment class, so doing it while
+    experiment.py is still being imported leaves the web server without PsyNet's routes
+    (gunicorn answers 404 to /timeline; `psynet debug local` hides it), and doing it from the
+    command line fails. So the patches run only once the server has loaded that module: at
+    import time if it is already there, otherwise from Exp.__init__ (experiment.py).
+    """
+    if "dallinger.experiment_server.sockets" not in sys.modules:
+        return
+    _patch_dallinger_redis_pubsub_listener()
+    _patch_dallinger_chat_backend_resubscribe()
+
+
+patch_dallinger_sockets()
 
 
 def last_valid_answer(participant: Participant, label: str):

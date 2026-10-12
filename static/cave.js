@@ -203,24 +203,51 @@
         return g;
     }
 
-    // A point: the same dark blue as before, with a light rim and a glint so it stands out.
+    // A point: a small pixel-art gem (10x10 sprite, dark outline, highlight and shade),
+    // drawn with nearest-neighbour filtering so the pixels stay crisp.
+    var GEM = [
+        "...OOOO...",
+        "..OLLBBO..",
+        ".OLWBBBBO.",
+        "OLWBBBBBDO",
+        "OLBBBBBBDO",
+        "OBBBBBBBDO",
+        "OBBBBBBDDO",
+        ".OBBBBDDO.",
+        "..ODDDDO..",
+        "...OOOO...",
+    ];
+    // Sapphire: keeps the blue of the original points, readable on the lit stone and for
+    // red-green colour blindness (blue against tan).
+    var PALETTE = { O: "#0d1036", L: "#8fb4ff", W: "#ffffff", B: "#2a50f0", D: "#17289a" };
+    var gemTexture = null;
+    function pointTexture() {
+        if (gemTexture) return gemTexture;
+        var palette = PALETTE;
+        var canvas = document.createElement("canvas");
+        canvas.width = canvas.height = GEM.length;
+        var ctx = canvas.getContext("2d");
+        GEM.forEach(function (row, y) {
+            row.split("").forEach(function (c, x) {
+                if (c === ".") return;
+                ctx.fillStyle = palette[c];
+                ctx.fillRect(x, y, 1, 1);
+            });
+        });
+        var texture = new THREE.CanvasTexture(canvas);
+        texture.magFilter = THREE.NearestFilter;
+        texture.minFilter = THREE.NearestFilter;
+        texture.generateMipmaps = false;
+        if ("colorSpace" in texture) texture.colorSpace = THREE.SRGBColorSpace;
+        gemTexture = texture;
+        return texture;
+    }
+
     function point() {
-        var g = new THREE.Group();
-        g.add(new THREE.Mesh(
-            new THREE.CircleGeometry(0.2, 28),
-            new THREE.MeshBasicMaterial({ color: 0xdfe8ff })
-        ));
-        g.add(new THREE.Mesh(
-            new THREE.CircleGeometry(0.165, 28),
-            new THREE.MeshBasicMaterial({ color: 0x00008a })
-        ));
-        var glint = new THREE.Mesh(
-            new THREE.CircleGeometry(0.045, 12),
-            new THREE.MeshBasicMaterial({ color: 0xffffff })
+        return new THREE.Mesh(
+            new THREE.PlaneGeometry(0.5, 0.5),
+            new THREE.MeshBasicMaterial({ map: pointTexture(), transparent: true })
         );
-        glint.position.set(-0.06, 0.06, 0.001);
-        g.add(glint);
-        return g;
     }
 
     window.CaveView = { build: build, pacman: pacman, point: point };

@@ -25,7 +25,7 @@
         font-size: 0.62rem; color: #ffffffaa; }
     .split-scene .ss-dot { position: absolute; width: var(--dot, 20px); height: var(--dot, 20px);
         margin: calc(var(--dot, 20px) / -2) 0 0 calc(var(--dot, 20px) / -2); box-sizing: border-box;
-        border-radius: 50%; background: #00008a; border: var(--ring, 4px) solid; box-shadow: 0 0 0 2px #0b0b0b;
+        border-radius: 50%; background: #2a50f0; border: var(--ring, 4px) solid; box-shadow: 0 0 0 2px #0b0b0b;
         transition: left 0.6s cubic-bezier(.3,.7,.3,1), top 0.6s cubic-bezier(.3,.7,.3,1), box-shadow 0.3s; }
     .split-scene .ss-dot.theirs::after { content: ""; position: absolute; left: 50%; top: 50%;
         width: 34%; height: 34%; transform: translate(-50%, -50%); border-radius: 50%; background: #fff; }
@@ -35,7 +35,7 @@
     .split-scene .ss-dot.moved { box-shadow: 0 0 0 2px #0b0b0b, 0 0 12px 3px #ffffffaa; }
     .split-legend { display: flex; flex-wrap: wrap; gap: 0.3rem 1rem; font-size: 0.8rem; color: #666; }
     .split-legend i { position: relative; display: inline-block; width: 12px; height: 12px; border-radius: 50%;
-        background: #00008a; border: 3px solid; vertical-align: -2px; margin-right: 4px; }
+        background: #2a50f0; border: 3px solid; vertical-align: -2px; margin-right: 4px; }
     .split-legend i.theirs::after { content: ""; position: absolute; left: 50%; top: 50%; width: 4px; height: 4px;
         transform: translate(-50%, -50%); border-radius: 50%; background: #fff; }
     .split-caption { text-align: center; color: #555; font-size: 0.92rem; margin-top: 0.3rem; min-height: 1.3em; }

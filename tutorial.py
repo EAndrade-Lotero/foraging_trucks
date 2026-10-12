@@ -15,7 +15,6 @@ from .foraging import (
     VIEW_RADIUS,
 )
 from .game_parameters import (
-    CONTRACT_BLOCK,
     FOOD_MOVES,
     MAX_MOVES,
     MOVE_STEP,
@@ -92,22 +91,22 @@ def range_input(slider_id: str, maximum: float, step: float, value: float) -> st
 def buying_moves_tutorial() -> ModularPage:
     """Investing (critiques of 12-oct): bank vs. this round's steps, unused moves are spent,
     and running out ends your game while your partner plays on. No arithmetic."""
+    top = min(START_MOVES, MAX_MOVES)  # as on the real page: never more than your bank
     prompt = Prompt(Markup(f"""
         <h3>Tutorial 1 of 3: investing moves</h3>
-        <p>Everything in this game is counted in <strong>moves</strong>. Your <strong>bank</strong>
-        keeps your moves from round to round. At the start of each round you take some out of the
-        bank: they are the <strong>steps your pac-man can take in that round</strong>. Try the
-        slider, then follow the yellow box on the right.</p>
-        {range_input("tut-moves", MAX_MOVES, MOVE_STEP, 10)}
+        <p>You have <strong>{START_MOVES} moves</strong> in your bank. Each round you choose how many
+        to invest: they are the <strong>steps your pac-man can take</strong>. Try the slider.</p>
+        {range_input("tut-moves", top, MOVE_STEP, 10)}
         <div id="tut-moves-out" class="live-value"></div>
-        {slider_frame("tut-moves", "0 moves", f"{MAX_MOVES} moves", MAX_MOVES // MOVE_STEP + 1, below="tut-moves-out")}
+        {slider_frame("tut-moves", "0 moves", f"{top} moves", top // MOVE_STEP + 1, below="tut-moves-out")}
         <script>
         (function () {{
             var slider = document.getElementById("tut-moves");
             function show() {{
                 var v = parseInt(slider.value, 10);
                 document.getElementById("tut-moves-out").innerHTML = "You invest <strong>" + v
-                    + " moves</strong>: your pac-man can take " + v + " steps this round";
+                    + " moves</strong>: " + v + " steps this round; " + ({START_MOVES} - v)
+                    + " stay in your bank";
             }}
             slider.addEventListener("input", show);
             show();
@@ -116,13 +115,9 @@ def buying_moves_tutorial() -> ModularPage:
     """))
     steps = [
         dict(type="info", text=f"Practice only: nothing here changes your bank.<br>"
-             f"You start with <strong>{START_MOVES} moves</strong> in your bank. Each round you "
-             f"invest some of them (never more than you have, and at most {MAX_MOVES}). Moves you "
-             "invest but do not use are spent anyway."),
-        dict(type="info", text=f"After each round the game adds the moves from your share of the "
-             f"points and "
-             f"takes {FOOD_MOVES} moves for food. You don't need to count: the game shows your "
-             "bank.<br>If your bank runs out, you leave the game and your partner goes on alone."),
+             "Invested moves are spent, even if you don't use them. After each round you get "
+             f"moves for your share of the points, and food costs {FOOD_MOVES}. The game counts for "
+             "you.<br>If your bank runs out, you leave the game and your partner goes on alone."),
     ]
     return tutorial_page("tutorial_moves", prompt, steps)
 
@@ -165,18 +160,15 @@ def moving_tutorial() -> ModularPage:
     )
     steps = [
         dict(type="board", check="me.x === 2 && me.y === 6", target_cell=[2, 6],
-             text="Your pac-man has the <strong>white ring</strong>. The board is "
-             "a <strong>dark cave</strong>: your torch lights the squares around you, and points only show up there. "
-             "You can always see your partner and both trails.<br>Use the arrow keys "
+             text="You are the pac-man with the <strong>white ring</strong>. Use the arrow keys "
              "(&uarr; &darr; &larr; &rarr;, or W A S D) to walk to the <strong>orange X</strong>.",
              hint="If you went the wrong way, click Restart this step.",
-             explanation="Each step uses one of your moves, and the light goes with you."),
+             explanation="Each step uses one move. Your torch goes with you."),
         dict(type="board", check="me.x === 4 && me.y === 7",
-             text="A point is hidden <strong>close to the X</strong>. Look around until you see it, "
-             "then step on it to collect it.",
+             text="A point is hidden <strong>near the X</strong>. Find it and step on it.",
              hint="Try the squares next to you: points only appear when they are lit.",
-             explanation="You found it: points appear only when you get close. You also see your "
-             "partner and where both of you have been."),
+             explanation="Points only show up in your torchlight. You always see your partner "
+             "and both trails."),
     ]
     return tutorial_page("tutorial_board", prompt, steps)
 
@@ -257,9 +249,9 @@ def contract_tutorial() -> ModularPage:
 
     steps = [
         dict(type="slider", slider="tut-contract", target=1, example=[you, partner], start=0,
-             text=f"This round <strong>you collected {you} points</strong> and <strong>your partner "
-             f"{partner}</strong>. At the start the slider is on <strong>Commission</strong>: each "
-             "player keeps what they collected. Drag it to <strong>Wages</strong> and watch the points.",
+             text=f"<strong>You collected {you} points</strong>, <strong>your partner {partner}</strong>. "
+             "On <strong>Commission</strong> each keeps their own. Drag the slider to "
+             "<strong>Wages</strong> and watch.",
              hint="Drag the slider all the way to the right.",
              explanation="You tried <strong>Wages</strong>: both players get an equal share of all "
              "the points collected. Between the two ends, points are partly shared."),
@@ -270,9 +262,5 @@ def contract_tutorial() -> ModularPage:
                   "Points move from whoever collected more to whoever collected fewer.",
                   hint="With Wages both players end up with the same number of points."),
              example=[partner, you], start=0, reveal=1),
-        dict(type="info",
-             text=f"The contract stays the same for {CONTRACT_BLOCK} rounds. Then you and your "
-             "partner each propose one, and the game uses the one <strong>halfway between your two "
-             "proposals</strong>."),
     ]
     return tutorial_page("tutorial_contract", prompt, steps)

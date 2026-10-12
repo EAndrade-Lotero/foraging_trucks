@@ -8,42 +8,46 @@ from psynet.modular_page import ModularPage, Prompt, SliderControl
 from psynet.page import InfoPage, WaitPage
 from psynet.participant import Participant
 from psynet.sync import GroupBarrier, SimpleGrouper
-from psynet.timeline import CodeBlock, PageMaker, Timeline, join
+from psynet.timeline import PageMaker, Timeline, conditional, join
 from psynet.trial.static import StaticNode, StaticTrial, StaticTrialMaker
 
 from .foraging import (
     FORAGING_DURATION,
-    MAX_MOVES,
     MIN_PLAYERS,
-    MOVE_PRICE,
+    PLAYER_COLORS,
     ROUND_TERRAINS,
     EnableForaging,
     ForagingPage,
     last_valid_answer,
 )
-from .game_parameters import INCLUDE_TUTORIAL
+from .game_parameters import (
+    CONTRACT_BLOCK,
+    FOOD_MOVES,
+    INCLUDE_TUTORIAL,
+    MAX_MOVES,
+    MOVE_STEP,
+    N_ROUNDS,
+    POINT_MOVES,
+    SOLO_FOOD_FACTOR,
+    SOLO_MAX_ROUNDS,
+    START_MOVES,
+)
 from .tutorial import (
     CONTRACT_ENDS,
     buying_moves_tutorial,
     contract_tutorial,
     moving_tutorial,
     slider_frame,
+    split_scene,
 )
 
 
 GROUP_TYPE = "crew"
-N_ROUNDS = 2
 
-# Demo economy (not final), in points, on slide 15's scale: a collected coin is worth
-# COIN_POINTS, the round's food costs one coin (FIXED_COST), 15 moves cost three coins
-# (MOVE_PRICE in foraging.py) and players start with four coins (START_BALANCE).
-# COIN_POINTS is a multiple of 20 so that, with 10% contract steps, every part of the split
-# (kept and pooled) is a whole number. The balance carries over rounds; nobody is eliminated
-# yet (open question: a threshold or a negative balance) and moves can always be bought.
-COIN_POINTS = 20
-FIXED_COST = COIN_POINTS  # food, one coin per round (slide 15)
-START_BALANCE = 4 * COIN_POINTS
-START_CONTRACT = 0.0  # 0 = commission (keep your coins), 1 = wages (equal split)
+# Economy (game_parameters.py): everything is counted in moves. Players invest moves from their
+# bank, collect points (each worth POINT_MOVES moves), the contract shares the points, and food
+# is paid. A player whose bank reaches zero is out; their partner plays on alone.
+START_CONTRACT = 0.0  # 0 = commission (keep your points), 1 = wages (equal split)
 
 TUTORIAL_SECONDS = 30
 MOVES_SECONDS = 20
@@ -56,7 +60,7 @@ TRIAL_TIME_ESTIMATE = (
     + BARRIER_EXPECTED_WAIT
     + FORAGING_DURATION
     + SCORE_SECONDS
-    + CONTRACT_SECONDS
+    + CONTRACT_SECONDS / CONTRACT_BLOCK
 )
 
 
@@ -80,85 +84,114 @@ def current_contract(participant: Participant) -> float:
     return _as_float(crew(participant).var.get("contract", START_CONTRACT))
 
 
-def split_parts(contract: float, own: int, partner: int) -> tuple:
-    """Commission-wages rule (slides 11-13), in points.
+def transfer(contract: float, own: int, partner: int) -> int:
+    """Points the first player gives to the other under the commission-wages rule (slides 11-13).
 
-    Commission: each player keeps (1 - contract) of their own points. Wages: the rest of
-    both players' points goes into a common pot that is split equally.
-    Returns (kept, half_of_pot, total) for the first player; all whole numbers.
+    Commission keeps (1 - contract) of your own points; wages pool the rest of both players'
+    points and split the pot equally. Together that is own - contract * (own - partner) / 2, so
+    the rule is one transfer between the players, rounded to a whole point (half away from zero)
+    so that both shares are whole and still add up to what the two collected.
+    static/split_scene.js draws the same rule.
     """
-    kept = round((1 - contract) * own)
-    half_pot = round(contract * (own + partner) / 2)
-    return kept, half_pot, kept + half_pot
+    gap = contract * (own - partner) / 2
+    whole = int(abs(gap) + 0.5 + 1e-9)
+    return whole if gap >= 0 else -whole
 
 
 def split(contract: float, own: int, partner: int) -> int:
-    return split_parts(contract, own, partner)[2]
+    return own - transfer(contract, own, partner)
 
 
-def split_table(contract: float, own: int, partner: int, you: str = "You") -> str:
-    """The division of the points, step by step, for both players."""
-    k1, h1, t1 = split_parts(contract, own, partner)
-    k2, h2, t2 = split_parts(contract, partner, own)
-    c, w = round(100 * (1 - contract)), round(100 * contract)
-    return f"""
-        <table class="points-table">
-            <tr><th></th><th class="num">{you}</th><th class="num">Partner</th></tr>
-            <tr><td>Points from coins collected</td><td class="num">{own}</td><td class="num">{partner}</td></tr>
-            <tr><td><strong>Commission {c}%</strong>
-                <span class="note">each keeps {c}% of their own points</span></td>
-                <td class="num">{k1}</td><td class="num">{k2}</td></tr>
-            <tr><td><strong>Wages {w}%</strong>
-                <span class="note">the other {w}% of both: a pot of {h1 + h2} points, split equally</span></td>
-                <td class="num">+ {h1}</td><td class="num">+ {h2}</td></tr>
-            <tr class="total"><td>Share</td><td class="num">{t1}</td><td class="num">{t2}</td></tr>
-        </table>
-    """
-
-
-# The same rule and table in JavaScript, for the live slider previews.
-SPLIT_JS = """
-function splitParts(w, own, partner) {
-    var kept = Math.round((1 - w) * own), halfPot = Math.round(w * (own + partner) / 2);
-    return [kept, halfPot, kept + halfPot];
-}
-function split(w, own, partner) { return splitParts(w, own, partner)[2]; }
-function splitTable(w, own, partner, you) {
-    var a = splitParts(w, own, partner), b = splitParts(w, partner, own);
-    var c = Math.round(100 * (1 - w)), p = Math.round(100 * w), n = '<td class="num">';
-    return '<table class="points-table">'
-        + '<tr><th></th><th class="num">' + (you || "You") + '</th><th class="num">Partner</th></tr>'
-        + "<tr><td>Points from coins collected</td>" + n + own + "</td>" + n + partner + "</td></tr>"
-        + "<tr><td><strong>Commission " + c + '%</strong><span class="note">each keeps ' + c
-        + "% of their own points</span></td>" + n + a[0] + "</td>" + n + b[0] + "</td></tr>"
-        + "<tr><td><strong>Wages " + p + '%</strong><span class="note">the other ' + p
-        + "% of both: a pot of " + (a[1] + b[1]) + " points, split equally</span></td>"
-        + n + "+ " + a[1] + "</td>" + n + "+ " + b[1] + "</td></tr>"
-        + '<tr class="total"><td>Share</td>' + n + a[2] + "</td>" + n + b[2] + "</td></tr></table>";
-}
-"""
+def signed(n: int) -> str:
+    return f"+ {n}" if n > 0 else (f"− {-n}" if n < 0 else "0")
 
 
 def contract_label(contract: float) -> str:
     return f"{round(100 * (1 - contract))}% commission / {round(100 * contract)}% wages"
 
 
-def coins_collected(participant: Participant) -> int:
+def points(n: int) -> str:
+    return f"{n} point" if n == 1 else f"{n} points"
+
+
+def moves(n: int) -> str:
+    return f"{n} move" if n == 1 else f"{n} moves"
+
+
+def points_collected(participant: Participant) -> int:
     answer = last_valid_answer(participant, "foraging_page")
     return int(answer.get("coins_collected", 0)) if isinstance(answer, dict) else 0
 
 
-def moves_bought(participant: Participant) -> int:
+def moves_invested(participant: Participant) -> int:
     return round(_as_float(last_valid_answer(participant, "buy_moves")))
 
 
-def moves_cost(moves: int) -> int:
-    return moves * MOVE_PRICE
+def bank(participant: Participant) -> int:
+    """Moves carried over: the starting bank plus every finished round."""
+    return START_MOVES + sum(participant.var.get("scores", {}).values())
 
 
-def partner_of(participant: Participant):
-    others = [p for p in crew(participant).participants if p.id != participant.id]
-    return others[0] if others else None
+def results(participant: Participant) -> list:
+    return participant.var.get("results", [])
+
+
+def is_out(participant: Participant) -> bool:
+    return participant.var.get("out_round", None) is not None
+
+
+def is_solo(participant: Participant) -> bool:
+    return participant.var.get("partner_out_round", None) is not None
+
+
+def solo_rounds(participant: Participant) -> int:
+    return sum(1 for r in results(participant) if r["solo"])
+
+
+def score_round(group, participants, participant, barrier):
+    """Runs once when both players have finished foraging: shares the points and pays.
+
+    Both results are computed here, together, so that a player who runs out of moves can leave
+    the group without changing their partner's result for the same round.
+    """
+    if group.var.get("scored_barrier", None) == barrier.id:
+        return
+    group.var.set("scored_barrier", barrier.id)
+    players = sorted(participants, key=lambda p: p.id)
+    contract = _as_float(group.var.get("contract", START_CONTRACT))
+    solo = len(players) == 1
+    collected = {p.id: points_collected(p) for p in players}
+    for i, p in enumerate(players):
+        if not solo:
+            p.var.set("color_index", i)  # as on the board, where colours follow participant IDs
+        others = [q for q in players if q.id != p.id]
+        own = collected[p.id]
+        other = collected[others[0].id] if others else 0
+        share = own if solo else split(contract, own, other)
+        food = FOOD_MOVES * (SOLO_FOOD_FACTOR if solo else 1)
+        invested = moves_invested(p)
+        score = share * POINT_MOVES - invested - food
+        round_number = len(results(p)) + 1
+        result = dict(
+            round=round_number, solo=solo, contract=None if solo else contract,
+            own=own, other=other, share=share, invested=invested, food=food,
+            gained=share * POINT_MOVES, score=score,
+        )
+        p.var.set("results", results(p) + [result])
+        scores = p.var.get("scores", {})
+        scores[str(round_number)] = score
+        p.var.set("scores", scores)
+    for p in players:
+        if bank(p) <= 0:
+            p.var.set("out_round", len(results(p)))
+            # The partner plays on alone: the group must not wait for a second player, and
+            # nobody new may join it mid-game.
+            group.min_group_size = 1
+            group.accepts_top_ups = False
+            group.remove_participant(p)
+            for q in players:
+                if q.id != p.id and bank(q) > 0:
+                    q.var.set("partner_out_round", len(results(q)))
 
 
 def average_proposals(group, participants, participant, barrier):
@@ -168,7 +201,7 @@ def average_proposals(group, participants, participant, barrier):
     ]
     proposals = [p for p in proposals if p is not None]
     if proposals:
-        # Rounded to the slider's 10% steps, so every split stays in whole points.
+        # Rounded to the slider's 10% steps.
         average = sum(proposals) / len(proposals)
         group.var.set("contract", int(average * 10 + 0.5) / 10)
 
@@ -181,7 +214,6 @@ def slider_preview(slider_id: str, output_id: str, js_body: str) -> str:
     return f"""
         <div id="{output_id}" class="live-value"></div>
         <script>
-        {SPLIT_JS}
         psynet.trial.onEvent("trialConstruct", function () {{
             var slider = document.getElementById("{slider_id}");
             var out = document.getElementById("{output_id}");
@@ -197,7 +229,6 @@ def slider_preview(slider_id: str, output_id: str, js_body: str) -> str:
 
 
 CONTRACT_STEPS = 11  # 0%, 10%, ..., 100% wages
-MOVE_STEPS = MAX_MOVES + 1
 
 
 def wait_page(text: str) -> WaitPage:
@@ -222,136 +253,144 @@ def tutorial_page() -> InfoPage:
         Markup(
             f"""
             <h3>How the game works</h3>
-            <p>You and a partner each move a pac-man and collect coins. Each coin is worth
-            <strong>{COIN_POINTS} points</strong>. You start with <strong>{START_BALANCE} points</strong>
-            and play <strong>{N_ROUNDS} rounds</strong>, each on a new terrain; your points carry over
-            from round to round. Each round:</p>
+            <p>Everything in this game is counted in <strong>moves</strong>. You start with
+            <strong>{START_MOVES} moves</strong> in your bank and play up to <strong>{N_ROUNDS}
+            rounds</strong> with a partner, each on a new board. Each round:</p>
             <ol>
-                <li><strong>Buy moves</strong>: 0 to {MAX_MOVES} moves, {MOVE_PRICE} points each.
-                    With no moves left you stop.</li>
-                <li><strong>Collect coins</strong> for {FORAGING_DURATION} seconds with the arrow keys or WASD.</li>
-                <li><strong>Split the points</strong> with the current contract, then pay for your moves
-                    and {FIXED_COST} points of food.</li>
-                <li><strong>Propose a new contract</strong> for the next round.</li>
+                <li><strong>Invest moves</strong> from your bank: they are the steps your
+                    pac-man can take.</li>
+                <li><strong>Collect points</strong> on a dark board.</li>
+                <li><strong>Share the points</strong> with the contract. The game turns them into
+                    moves for you and pays for food.</li>
             </ol>
+            <p>Every {CONTRACT_BLOCK} rounds you and your partner propose a new contract.
+            If your bank runs out, you are out of the game.</p>
             """
         ),
         time_estimate=TUTORIAL_SECONDS,
     )
 
 
-def coins(n: int) -> str:
-    return f"{n} coin" if n == 1 else f"{n} coins"
+def colors(participant: Participant) -> tuple:
+    """The pac-man colours of this player and their partner, as on the board."""
+    me = participant.var.get("color_index", 0)
+    return PLAYER_COLORS[me], PLAYER_COLORS[1 - me]
 
 
-def balance(participant: Participant) -> int:
-    """Points carried over: the starting points plus every finished round."""
-    return START_BALANCE + sum(participant.var.get("scores", {}).values())
+def invest_slider(have: int) -> tuple:
+    """Largest investment and number of slider stops, never more than the bank."""
+    if have >= MOVE_STEP:
+        top = min(MAX_MOVES, have - have % MOVE_STEP)
+        return top, top // MOVE_STEP + 1
+    return max(have, 1), max(have, 1) + 1
 
 
 def buy_moves_page(participant: Participant, round_index: int) -> ModularPage:
+    have = bank(participant)
+    top, n_stops = invest_slider(have)
+    if is_solo(participant):
+        situation = (
+            f"Your partner ran out of moves, so you play <strong>alone</strong>: no contract, and "
+            f"food costs {FOOD_MOVES * SOLO_FOOD_FACTOR} moves. You can play at most "
+            f"{SOLO_MAX_ROUNDS - solo_rounds(participant)} more rounds."
+        )
+    else:
+        situation = f"Contract: <strong>{contract_label(current_contract(participant))}</strong>."
     preview = slider_preview(
         "moves-slider",
         "moves-output",
         f"""
-        out.innerHTML = "<strong>" + v + " moves</strong> cost <strong>" + (v * {MOVE_PRICE}) + " points</strong>";
+        out.innerHTML = "You invest <strong>" + v + (v === 1 ? " move" : " moves")
+            + "</strong>; " + ({have} - v) + " stay in your bank";
         """,
     )
     prompt = Markup(
         f"""
-        <h3>Round {round_index + 1} of {N_ROUNDS}: buy moves</h3>
-        <p>You have <strong>{balance(participant)} points</strong>.</p>
-        <p><strong>How many moves do you want to buy?</strong> Each move costs {MOVE_PRICE} points.
-        Each coin you collect is worth {COIN_POINTS} points. You cannot buy more moves during the round.</p>
-        <p>This round also costs {FIXED_COST} points of food. Current contract:
-        <strong>{contract_label(current_contract(participant))}</strong>.</p>
+        <h3>Round {round_index + 1} of {N_ROUNDS}: invest moves</h3>
+        <p>You have <strong>{have} moves</strong> in your bank. <strong>How many do you want to
+        invest in this round?</strong> They are the steps your pac-man can take. Each point you
+        collect gives you {POINT_MOVES} moves back.</p>
+        <p>{situation}</p>
         {preview}
-        {slider_frame("moves-slider", "0 moves", f"{MAX_MOVES} moves", MOVE_STEPS, below="moves-output")}
+        {slider_frame("moves-slider", "0 moves", f"{top} moves", n_stops, below="moves-output")}
         """
     )
     return ModularPage(
         "buy_moves",
         Prompt(prompt),
         SliderControl(
-            start_value=5,
+            start_value=min(20, top),
             min_value=0,
-            max_value=MAX_MOVES,
-            n_steps=MOVE_STEPS,  # 0, 1, ..., 15 moves
+            max_value=top,
+            n_steps=n_stops,
             slider_id="moves-slider",
             minimal_interactions=1,
-            bot_response=8,
+            bot_response=min(30, top),
         ),
         time_estimate=MOVES_SECONDS,
     )
 
 
-def round_result(participant: Participant) -> dict:
-    contract = current_contract(participant)
-    partner = partner_of(participant)
-    own = coins_collected(participant) * COIN_POINTS
-    other = (coins_collected(partner) if partner else 0) * COIN_POINTS
-    moves = moves_bought(participant)
-    spent = moves_cost(moves)
-    share = split(contract, own, other)
-    return dict(
-        contract=contract, own=own, other=other, share=share,
-        moves=moves, spent=spent, score=share - spent - FIXED_COST,
-    )
-
-
-def store_score(participant: Participant, round_index: int):
-    scores = participant.var.get("scores", {})
-    scores[str(round_index + 1)] = round_result(participant)["score"]
-    participant.var.set("scores", scores)
+def ledger(r: dict, after: int) -> str:
+    """The round in moves, already added up: the participant never has to compute."""
+    food = "Food (alone: × " + str(SOLO_FOOD_FACTOR) + ")" if r["solo"] else "Food"
+    return f"""
+        <table class="points-table">
+            <tr><td>Your {points(r["share"])}</td><td class="num">{signed(r["gained"])} moves</td></tr>
+            <tr><td>Moves you invested</td><td class="num">{signed(-r["invested"])}</td></tr>
+            <tr><td>{food}</td><td class="num">{signed(-r["food"])}</td></tr>
+            <tr class="total"><td>This round</td><td class="num">{signed(r["score"])}</td></tr>
+            <tr><td>Your bank</td><td class="num">{after - r["score"]} → <strong>{max(after, 0)}</strong></td></tr>
+        </table>
+    """
 
 
 def score_page(participant: Participant) -> InfoPage:
-    r = round_result(participant)
-    contract, own, other = r["contract"], r["own"], r["other"]
-    share, moves, spent, score = r["share"], r["moves"], r["spent"], r["score"]
-    after = balance(participant)  # the score is already stored
+    r = results(participant)[-1]
+    after = bank(participant)
+    you, partner = colors(participant)
+    head = f"You gained {moves(r['score'])}" if r["score"] >= 0 else f"You lost {moves(-r['score'])}"
+    if r["solo"]:
+        body = f"<p>You played alone and collected <strong>{points(r['own'])}</strong>.</p>"
+    else:
+        scene = split_scene("score-scene", "", r["own"], r["other"], r["contract"],
+                            you_color=you, partner_color=partner, fixed=True, play_from=0)
+        body = f"""
+            <p>You collected <strong>{points(r["own"])}</strong> and your partner
+            <strong>{points(r["other"])}</strong>. Watch the contract
+            (<strong>{contract_label(r["contract"])}</strong>) share them:</p>
+            {scene}
+        """
+    if is_out(participant):
+        tail = """<p class="out-note"><strong>Your bank is empty: you are out of the game.</strong>
+                  """ + ("" if r["solo"] else "Your partner continues alone.") + "</p>"
+    elif participant.var.get("partner_out_round", None) == r["round"]:
+        tail = f"""<p class="out-note"><strong>Your partner ran out of moves.</strong> From now on
+                   you play alone, for at most {SOLO_MAX_ROUNDS} more rounds.</p>"""
+    else:
+        tail = ""
     return InfoPage(
-        Markup(
-            f"""
-            <h3>You earned {score} points this round</h3>
-            <p>You collected <strong>{coins(own // COIN_POINTS)}</strong> and your partner collected
-            <strong>{coins(other // COIN_POINTS)}</strong>. Each coin is worth {COIN_POINTS} points.
-            Contract: <strong>{contract_label(contract)}</strong>.</p>
-            {split_table(contract, own, other)}
-            <table class="points-table">
-                <tr><td>Your share</td><td class="num">{share}</td></tr>
-                <tr><td>Moves ({moves} × {MOVE_PRICE})</td><td class="num">− {spent}</td></tr>
-                <tr><td>Food</td><td class="num">− {FIXED_COST}</td></tr>
-                <tr class="total"><td>You earned this round</td><td class="num">{score}</td></tr>
-                <tr><td>Your points</td><td class="num">{after - score} → <strong>{after}</strong></td></tr>
-            </table>
-            """
-        ),
+        Markup(f"<h3>{head} this round</h3>{body}{ledger(r, after)}{tail}"),
         time_estimate=SCORE_SECONDS,
     )
 
 
 def propose_contract_page(participant: Participant) -> ModularPage:
     contract = current_contract(participant)
-    partner = partner_of(participant)
-    own = coins_collected(participant) * COIN_POINTS
-    other = (coins_collected(partner) if partner else 0) * COIN_POINTS
-    preview = slider_preview(
-        "contract-slider",
-        "contract-output",
-        f"""
-        out.innerHTML = '<p class="live-note">With this round&rsquo;s coins, '
-            + "your proposal would divide the points like this:</p>" + splitTable(v, {own}, {other});
-        """,
-    )
+    r = results(participant)[-1]
+    you, partner = colors(participant)
+    scene = split_scene("propose-scene", "contract-slider", r["own"], r["other"], contract,
+                        you_color=you, partner_color=partner)
     prompt = Markup(
         f"""
         <h3>Propose a new contract</h3>
-        <p>This round used <strong>{contract_label(contract)}</strong>.
-        Move the slider to propose the contract for the <strong>next</strong> round.
-        Your partner proposes one too, and the next round uses <strong>the average</strong> of both.</p>
-        {preview}
-        {slider_frame("contract-slider", *CONTRACT_ENDS, CONTRACT_STEPS, below="contract-output")}
+        <p>The last {CONTRACT_BLOCK} rounds used <strong>{contract_label(contract)}</strong>.
+        Move the slider to propose the contract for the <strong>next {CONTRACT_BLOCK} rounds</strong>.
+        Your partner proposes one too, and the game uses <strong>the average</strong> of both.</p>
+        <p class="live-note">With this round's points (you {r["own"]}, your partner {r["other"]}),
+        your proposal would share them like this:</p>
+        {scene}
+        {slider_frame("contract-slider", *CONTRACT_ENDS, CONTRACT_STEPS)}
         """
     )
     return ModularPage(
@@ -371,24 +410,36 @@ def propose_contract_page(participant: Participant) -> ModularPage:
 
 
 def summary_page(participant: Participant) -> InfoPage:
-    scores = participant.var.get("scores", {})
     rows = "".join(
-        f"<tr><td>Round {r}</td><td class='num'>{s:+d}</td></tr>"
-        for r, s in sorted(scores.items())
+        f"<tr><td>Round {r['round']}{' (alone)' if r['solo'] else ''}</td>"
+        f"<td class='num'>{signed(r['score'])}</td></tr>"
+        for r in results(participant)
     )
+    if is_out(participant):
+        how = f"You ran out of moves in round {participant.var.get('out_round')}."
+    elif is_solo(participant):
+        how = (f"Your partner ran out of moves in round {participant.var.get('partner_out_round')}; "
+               "you played on alone.")
+    else:
+        how = f"You and your partner played all {N_ROUNDS} rounds."
     return InfoPage(
         Markup(
             f"""
             <h3>Game over</h3>
-            <p>Thank you for playing. Your points:</p>
+            <p>{how} Thank you for playing. Your bank of moves:</p>
             <table class="points-table">
-                <tr><td>Start</td><td class="num">{START_BALANCE}</td></tr>{rows}
-                <tr class="total final"><td>Final points</td><td class="num">{balance(participant)}</td></tr>
+                <tr><td>Start</td><td class="num">{START_MOVES}</td></tr>{rows}
+                <tr class="total final"><td>Final bank</td><td class="num">{max(bank(participant), 0)}</td></tr>
             </table>
             """
         ),
         time_estimate=10,
     )
+
+
+def proposes_after(round_index: int) -> bool:
+    """A new contract is proposed after each block of CONTRACT_BLOCK rounds (not after the last)."""
+    return (round_index + 1) % CONTRACT_BLOCK == 0 and round_index + 1 < N_ROUNDS
 
 
 class ForagingTrucksTrial(StaticTrial):
@@ -405,14 +456,14 @@ class ForagingTrucksTrial(StaticTrial):
             ),
             crew_barrier(
                 f"moves_{self.node_id}",
-                "Waiting for your partner to finish buying moves...",
+                "Waiting for your partner to finish investing moves...",
             ),
             PageMaker(
                 lambda participant: ForagingPage(
                     participant,
                     round_id=self.node_id,
-                    moves=moves_bought(participant),
-                    title=f"<h3>Round {round_index + 1} of {N_ROUNDS}: collect coins</h3>",
+                    moves=moves_invested(participant),
+                    title=f"<h3>Round {round_index + 1} of {N_ROUNDS}: collect points</h3>",
                     terrain=ROUND_TERRAINS[round_index % len(ROUND_TERRAINS)],
                 ),
                 time_estimate=FORAGING_DURATION,
@@ -420,19 +471,48 @@ class ForagingTrucksTrial(StaticTrial):
             crew_barrier(
                 f"foraging_{self.node_id}",
                 "Waiting for your partner to finish the round...",
+                on_release=score_round,
             ),
-            CodeBlock(lambda participant: store_score(participant, round_index)),
             PageMaker(score_page, time_estimate=SCORE_SECONDS),
-            PageMaker(propose_contract_page, time_estimate=CONTRACT_SECONDS),
-            crew_barrier(
-                f"proposal_{self.node_id}",
-                "Waiting for your partner's proposal...",
-                on_release=average_proposals,
+            # Players who are out, or alone, do not propose (and must not wait at a barrier).
+            conditional(
+                f"propose_{round_index}",
+                lambda participant: (
+                    proposes_after(round_index)
+                    and not is_out(participant)
+                    and not is_solo(participant)
+                ),
+                join(
+                    PageMaker(propose_contract_page, time_estimate=CONTRACT_SECONDS),
+                    crew_barrier(
+                        f"proposal_{self.node_id}",
+                        "Waiting for your partner's proposal...",
+                        on_release=average_proposals,
+                    ),
+                ),
             ),
         )
 
 
-trial_maker = StaticTrialMaker(
+class ForagingTrialMaker(StaticTrialMaker):
+    """Stops a player's rounds when they are out, or after SOLO_MAX_ROUNDS rounds alone."""
+
+    @staticmethod
+    def game_over(participant: Participant) -> bool:
+        return is_out(participant) or solo_rounds(participant) >= SOLO_MAX_ROUNDS
+
+    def prepare_trial(self, experiment, participant):
+        if self.game_over(participant):
+            return None, "exit"
+        return super().prepare_trial(experiment, participant)
+
+    def prepare_follower_trial(self, experiment, participant, leader):
+        if self.game_over(participant):
+            return None, "exit"
+        return super().prepare_follower_trial(experiment, participant, leader)
+
+
+trial_maker = ForagingTrialMaker(
     id_="foraging_trucks",
     trial_class=ForagingTrucksTrial,
     nodes=START_NODES,
@@ -476,7 +556,7 @@ class Exp(psynet.experiment.Experiment):
             Markup(
                 """
                 <h3>Welcome</h3>
-                <p>In this game you team up with another player to collect coins.</p>
+                <p>In this game you team up with another player to collect points.</p>
                 """
                 + (
                     """
@@ -496,7 +576,7 @@ class Exp(psynet.experiment.Experiment):
                 tutorial_page(),
                 buying_moves_tutorial(),
                 moving_tutorial(),
-                contract_tutorial(SPLIT_JS, split_parts, FIXED_COST, COIN_POINTS),
+                contract_tutorial(),
             ]
             if INCLUDE_TUTORIAL
             else []
@@ -522,7 +602,7 @@ class Exp(psynet.experiment.Experiment):
     def test_serial_run_bots(self, bots: List[BotDriver]):
         # The bots have to advance in lockstep, otherwise the first bot would sit at
         # the grouper and at the barriers until it timed out.
-        max_pages = 200
+        max_pages = 400
         for _ in range(max_pages):
             working = [bot for bot in bots if bot.is_working]
             if not working:
@@ -534,4 +614,6 @@ class Exp(psynet.experiment.Experiment):
 
     def test_check_bot(self, bot: Bot, **kwargs):
         assert not bot.failed
-        assert len(bot.var.get("scores", {})) == N_ROUNDS
+        n = len(bot.var.get("scores", {}))
+        assert 1 <= n <= N_ROUNDS
+        assert len(bot.var.get("results", [])) == n

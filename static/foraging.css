@@ -213,3 +213,12 @@ body #main-body:has(#wait-page) {
     max-width: 600px;
     text-align: left;
 }
+
+/* A player ran out of moves (experiment.py, score_page). */
+.out-note {
+    margin-top: 0.8rem;
+    padding: 0.6rem 0.8rem;
+    border-left: 4px solid #e74c3c;
+    background: #fdf0ef;
+    border-radius: 4px;
+}

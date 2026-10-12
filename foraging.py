@@ -11,13 +11,13 @@ from psynet.modular_page import Control, ModularPage, Prompt
 from psynet.participant import Participant
 from psynet.timeline import NullElt, WebSocketElt
 
+from .game_parameters import MAX_MOVES  # the economy lives in game_parameters.py
+
 
 GRID_SIZE = 16
 MIN_PLAYERS = 2
 MAX_PLAYERS = 10
 FORAGING_DURATION = 60
-MAX_MOVES = 15  # players buy moves directly, 0-15 per round (Andrade, 29-sep)
-MOVE_PRICE = 4  # points per move: 15 moves cost 3 coins (slide 15); not final
 VIEW_RADIUS = 1  # fog: each player sees the 3x3 cells around their pac-man
 # Fixed coin maps per terrain, made by tools/generate_maps.py (slides 7-8).
 MAPS_DIR = Path(__file__).resolve().parent / "static" / "maps"
@@ -56,10 +56,21 @@ def _spawn_positions(size: int) -> list:
 SPAWN_POSITIONS = _spawn_positions(GRID_SIZE)
 
 # Round terrains: Andrade's Coordinator_and_Foragers maps scaled from 80x80 to 16x16
-# (tools/generate_maps.py --size 16; andrade16_map0 to map15 are all available):
-# abundant and concentrated first, then scattered and scarce
-# (made with Andrade's own generator, tools/generate_scattered_map.py).
-ROUND_TERRAINS = ["andrade16_map12", "andrade16_map_scattered"]
+# (tools/generate_maps.py --size 16) and a scattered, scarce one made with Andrade's own
+# generator (tools/generate_scattered_map.py). One map per round (N_ROUNDS in
+# game_parameters.py), rich and poor in turn: 11 to 29 points, about 22 on average.
+ROUND_TERRAINS = [
+    "andrade16_map12",
+    "andrade16_map1",
+    "andrade16_map3",
+    "andrade16_map_scattered",
+    "andrade16_map10",
+    "andrade16_map0",
+    "andrade16_map5",
+    "andrade16_map8",
+    "andrade16_map13",
+    "andrade16_map6",
+]
 
 # FORAGING_VARIANT=trucks: 3D trucks and spinning coins on Andrade's Coordinator_and_Foragers
 # maps (scaled from 80x80 to 20x20), with both trucks leaving from a shared base at the centre.
@@ -206,20 +217,30 @@ def last_valid_answer(participant: Participant, label: str):
     return max(responses, key=lambda r: r.id).answer if responses else None
 
 
+def spawn_position(room_id: str, index: int) -> tuple:
+    """Start cell for a player: the four corners in a random order per round (Andrade, 29-sep).
+
+    Seeded by the room id, so the page and the game server agree without sharing state.
+    """
+    corners = random.Random(room_id).sample(SPAWN_POSITIONS[:4], 4)
+    return (corners + SPAWN_POSITIONS[4:])[index]
+
+
 def active_participant_ids(participant: Participant) -> List[int]:
     return sorted(
         p.id for p in participant.sync_group.participants if not p.failed
     )[:MAX_PLAYERS]
 
 
-def known_players_for_group(participant: Participant) -> dict:
+def known_players_for_group(participant: Participant, room_id: str) -> dict:
     """Only seed the local participant; others appear via live websocket state."""
     active_ids = active_participant_ids(participant)
     idx = active_ids.index(participant.id)
+    x, y = spawn_position(room_id, idx)
     return {
         str(participant.id): {
-            "x": SPAWN_POSITIONS[idx][0],
-            "y": SPAWN_POSITIONS[idx][1],
+            "x": x,
+            "y": y,
             "color": PLAYER_COLORS[idx],
             "coins": 0,
             "collected_coin_coordinates": [],
@@ -317,6 +338,7 @@ class EnableForaging(NullElt, WebSocketElt):
     ) -> dict:
         if room_id not in self._rooms:
             self._rooms[room_id] = {
+                "id": room_id,
                 "grid_size": grid_size,
                 "terrain": terrain,
                 "players": {},
@@ -349,8 +371,8 @@ class EnableForaging(NullElt, WebSocketElt):
             positions = random.sample(candidates, min(len(candidates), grid_size + 5))
         return [{"id": i, "x": x, "y": y} for i, (x, y) in enumerate(positions)]
 
-    def _player_state(self, index: int, moves: int) -> dict:
-        spawn = SPAWN_POSITIONS[index]
+    def _player_state(self, room_id: str, index: int, moves: int) -> dict:
+        spawn = spawn_position(room_id, index)
         return {
             "x": spawn[0],
             "y": spawn[1],
@@ -376,7 +398,7 @@ class EnableForaging(NullElt, WebSocketElt):
             moves = round(float(last_valid_answer(participant, "buy_moves") or 0))
         except (TypeError, ValueError):
             moves = 0
-        room["players"][pid_str] = self._player_state(idx, min(max(moves, 0), MAX_MOVES))
+        room["players"][pid_str] = self._player_state(room["id"], idx, min(max(moves, 0), MAX_MOVES))
 
     def _mark_left(self, room: dict, participant_id: int):
         pid_str = str(participant_id)
@@ -474,7 +496,8 @@ class ForagingControl(Control):
         return dict(EMPTY_STATS)
 
     def get_bot_response(self, experiment, bot, page, prompt):
-        return dict(EMPTY_STATS)
+        # Uneven random hauls, so that test games reach the partner-out and solo branches.
+        return dict(EMPTY_STATS, coins_collected=random.randint(0, 9))
 
 
 class ForagingPage(ModularPage):
@@ -490,7 +513,7 @@ class ForagingPage(ModularPage):
         # participant would forage alone in their own room. The node ID is shared
         # because followers are assigned the leader's node, while the trial ID is not.
         room_id = f"foraging_{participant.sync_group.id}_{round_id}"
-        known_players = known_players_for_group(participant)
+        known_players = known_players_for_group(participant, room_id)
         super().__init__(
             label="foraging_page",
             prompt=ForagingPrompt(

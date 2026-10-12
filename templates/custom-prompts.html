@@ -84,7 +84,7 @@
 {% if config.text %}<div>{{ config.text }}</div>{% endif %}
 <div id="foraging-container">
     <div id="foraging-hud">
-        <div><span class="hud-label">Coins</span><span id="foraging-score" class="hud-value">0</span></div>
+        <div><span class="hud-label">Points</span><span id="foraging-score" class="hud-value">0</span></div>
         <div id="foraging-moves">
             <span class="hud-label">Moves</span>
             <div id="foraging-moves-bar"><div id="foraging-moves-fill"></div></div>
@@ -97,7 +97,7 @@
     </div>
     <div id="foraging-legend">
         Move with the arrow keys or WASD. The pac-man with the <strong>white ring</strong> is you.
-        You only see coins in the squares next to you; coloured squares show where each of you has been.
+        You only see points in the squares next to you; coloured squares show where each of you has been.
     </div>
 </div>
 
@@ -458,6 +458,19 @@
             });
         });
 
+        // Tutorial goal: an X on a square, drawn even in the dark.
+        if (PRACTICE && practiceTarget) {
+            var xMat = new THREE.MeshBasicMaterial({ color: 0xff7a00 });
+            var tpos2 = gridToWorld(practiceTarget[0], practiceTarget[1]);
+            [Math.PI / 4, -Math.PI / 4].forEach(function (angle, k) {
+                var bar = new THREE.Mesh(new THREE.PlaneGeometry(cellSize * 0.8, cellSize * 0.14), xMat);
+                bar.position.set(tpos2.x, tpos2.y, 0.08);
+                bar.rotation.z = angle;
+                boardGroup.add(bar);
+                entityMeshes["target_" + k] = bar;
+            });
+        }
+
         Object.keys(localState.players || {}).forEach(function (pid) {
             var player = localState.players[pid];
             var pos = gridToWorld(player.x, player.y);
@@ -699,6 +712,11 @@
     // The tutorial engine enables moves only during a board step, saves a checkpoint when
     // the step starts and can restore it ("Restart this step").
     var practiceEnabled = false;
+    var practiceTarget = null;
+    window.addEventListener("practice-target", function (e) {
+        practiceTarget = e.detail;
+        if (boardGroup) syncMeshes();
+    });
     var practiceCheckpoint = null;
     window.addEventListener("practice-enable", function (e) { practiceEnabled = e.detail; });
     window.addEventListener("practice-checkpoint", function () {

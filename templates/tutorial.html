@@ -63,6 +63,9 @@
         if (s.type === "board") {
             window.dispatchEvent(new CustomEvent("practice-checkpoint"));
         }
+        window.dispatchEvent(new CustomEvent("practice-target", { detail: s.target_cell || null }));
+        // Pages can set up each step (e.g. a new example in the contract tutorial).
+        window.dispatchEvent(new CustomEvent("tutorial-step", { detail: s }));
     }
 
     function feedback(ok, explanation) {
@@ -116,6 +119,12 @@
         if (new Function("me", "return " + s.check)(event.detail)) feedback(true, s.explanation);
     });
 
+    // Slider steps also pass by themselves as soon as the slider reaches the target.
+    document.addEventListener("input", function (event) {
+        var s = STEPS[step];
+        if (!s || s.type !== "slider" || passed || event.target.id !== s.slider) return;
+        if (Math.abs(parseFloat(event.target.value) - s.target) < 1e-6) feedback(true, s.explanation);
+    });
     el("tut-button").addEventListener("click", check);
     // Undo the moves of the current board step (e.g. after pressing the wrong arrow).
     el("tut-restart").addEventListener("click", function () {

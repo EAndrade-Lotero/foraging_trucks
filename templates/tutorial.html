@@ -82,8 +82,14 @@
             window.dispatchEvent(new CustomEvent("tutorial-passed", { detail: STEPS[step] }));
             el("tut-restart").style.display = "none";
             window.dispatchEvent(new CustomEvent("practice-enable", { detail: false }));
-            el("tut-button").style.display = "";
-            el("tut-button").textContent = "Continue";
+            // After a slider step, let the points finish moving before offering Continue.
+            var button = el("tut-button");
+            button.textContent = "Continue";
+            if (STEPS[step].type === "slider") {
+                setTimeout(function () { button.style.display = ""; }, 900);
+            } else {
+                button.style.display = "";
+            }
         } else {
             mistakes += 1;
             attempts[step + 1] = (attempts[step + 1] || 0) + 1;

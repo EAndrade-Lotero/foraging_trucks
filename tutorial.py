@@ -117,8 +117,10 @@ def buying_moves_tutorial() -> ModularPage:
     steps = [
         dict(type="info", text=f"Practice only: nothing here changes your bank.<br>"
              f"You start with <strong>{START_MOVES} moves</strong> in your bank. Each round you "
-             f"invest some (up to {MAX_MOVES}). Moves you invest but do not use are spent anyway."),
-        dict(type="info", text=f"After each round the game adds the moves from your points and "
+             f"invest some of them (never more than you have, and at most {MAX_MOVES}). Moves you "
+             "invest but do not use are spent anyway."),
+        dict(type="info", text=f"After each round the game adds the moves from your share of the "
+             f"points and "
              f"takes {FOOD_MOVES} moves for food. You don't need to count: the game shows your "
              "bank.<br>If your bank runs out, you leave the game and your partner goes on alone."),
     ]
@@ -163,9 +165,10 @@ def moving_tutorial() -> ModularPage:
     )
     steps = [
         dict(type="board", check="me.x === 2 && me.y === 6", target_cell=[2, 6],
-             text="Your pac-man is the one with the <strong>white ring</strong>. The board is "
-             "<strong>dark</strong>: you only see the lit squares around you.<br>Walk to the "
-             "<strong>orange X</strong> with the arrow keys (&uarr; &darr; &larr; &rarr;).",
+             text="Your pac-man has the <strong>white ring</strong>. The board is "
+             "<strong>dark</strong>: points stay hidden until they are in the lit area around you. "
+             "You can always see your partner and both trails.<br>Use the arrow keys "
+             "(&uarr; &darr; &larr; &rarr;, or W A S D) to walk to the <strong>orange X</strong>.",
              hint="If you went the wrong way, click Restart this step.",
              explanation="Each step uses one of your moves, and the light goes with you."),
         dict(type="board", check="me.x === 4 && me.y === 7",
@@ -255,11 +258,11 @@ def contract_tutorial() -> ModularPage:
     steps = [
         dict(type="slider", slider="tut-contract", target=1, example=[you, partner], start=0,
              text=f"This round <strong>you collected {you} points</strong> and <strong>your partner "
-             f"{partner}</strong>. The slider is on <strong>Commission</strong>: each player keeps "
-             "what they collected. Drag it to <strong>Wages</strong> and watch the points.",
+             f"{partner}</strong>. At the start the slider is on <strong>Commission</strong>: each "
+             "player keeps what they collected. Drag it to <strong>Wages</strong> and watch the points.",
              hint="Drag the slider all the way to the right.",
-             explanation="With <strong>Wages</strong>, both players get an equal share of all the "
-             "points collected: 4 of your points moved to your partner."),
+             explanation="You tried <strong>Wages</strong>: both players get an equal share of all "
+             "the points collected. Between the two ends, points are partly shared."),
         dict(quiz(f"Now <strong>your partner collected {you}</strong> and <strong>you "
                   f"{partner}</strong>. If the slider were on Wages, what would happen?",
                   ["Your partner gives you points", "You give your partner points",

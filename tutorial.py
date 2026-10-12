@@ -16,6 +16,7 @@ from .foraging import (
 )
 from .game_parameters import (
     CONTRACT_BLOCK,
+    FOOD_MOVES,
     MAX_MOVES,
     MOVE_STEP,
     POINT_MOVES,
@@ -114,24 +115,25 @@ def buying_moves_tutorial() -> ModularPage:
     steps = [
         dict(type="info", text=f"Practice only: nothing here changes your bank.<br>"
              f"You start with <strong>{START_MOVES} moves</strong> in your bank. Each round you "
-             "invest some of them: they are the <strong>steps your pac-man can take</strong> on "
-             "the board."),
+             f"invest some of them (up to {MAX_MOVES}, if your bank has them): they are the "
+             "<strong>steps your pac-man can take</strong> on the board."),
         dict(type="slider", slider="tut-moves", target=0,
              text="Move the slider all the way to the left: <strong>0 moves</strong>.",
              hint="Drag the slider all the way to the left.",
-             explanation="With 0 moves you keep your bank, but your pac-man cannot move."),
+             explanation="With 0 moves your pac-man stays still all round. Food is paid anyway."),
         dict(type="slider", slider="tut-moves", target=MAX_MOVES,
              text=f"Now all the way to the right: <strong>{MAX_MOVES} moves</strong>, the most you "
-             "can invest in one round.",
+             "can invest in one round (if you have them).",
              hint="Drag the slider all the way to the right.",
              explanation="More moves let you explore more of the board, but they cost more."),
         quiz("You invest 40 moves but only use 10. What happens to the other 30?",
              ["They go back to your bank", "They are spent anyway", "Your partner gets them"], 1,
              "Invested moves are spent whether you use them or not, so invest what you plan to use.",
              hint="Investing is like buying fuel before the trip."),
-        dict(type="info", text=f"Every point you collect gives you back <strong>{POINT_MOVES} moves"
-             "</strong>, and every round you also pay for <strong>food</strong>. Don't worry about "
-             "the counting: the game does it for you and shows your bank after each round."),
+        dict(type="info", text=f"After the round, the points you and your partner collected are "
+             f"shared with the contract and turned into moves ({POINT_MOVES} moves per point). Every "
+             f"round you also pay <strong>{FOOD_MOVES} moves of food</strong>. Don't worry about the "
+             "counting: the game does it and shows your bank after each round."),
     ]
     return tutorial_page("tutorial_moves", prompt, steps)
 
@@ -160,7 +162,7 @@ class PracticeBoardPrompt(Prompt):
 
 def moving_tutorial() -> ModularPage:
     """Andrade, 6-oct: "move to the X", then "find the point", with the fog front and centre."""
-    moves = 12
+    moves = 40  # plenty: a wrong turn should never leave the tutorial unsolvable
     me = dict(x=2, y=2, color=PLAYER_COLORS[0], coins=0, moves_left=moves,
               trajectory=[[2, 2]], connected=True)
     partner = dict(x=8, y=8, color=PLAYER_COLORS[1], coins=0, moves_left=0,
@@ -169,7 +171,7 @@ def moving_tutorial() -> ModularPage:
         """<h3>Tutorial 2 of 3: moving in the dark</h3>
         <p>This is a practice board. Follow the yellow box on the right.</p>""",
         players={"0": me, "1": partner},
-        coins=[{"id": 0, "x": 4, "y": 7}, {"id": 1, "x": 7, "y": 2}],
+        coins=[{"id": 0, "x": 4, "y": 7}],
         moves=moves,
     )
     steps = [
@@ -181,7 +183,7 @@ def moving_tutorial() -> ModularPage:
              "light move with you.",
              hint="If you went the wrong way, click Restart this step.",
              explanation="Each step uses one of your moves, and the light goes with you."),
-        dict(type="board", check="me.coins >= 1",
+        dict(type="board", check="me.x === 4 && me.y === 7",
              text="A point is hidden <strong>close to the X</strong>. Look around until you see it, "
              "then step on it to collect it.",
              hint="Try the squares next to you: points only appear when they are lit.",
@@ -219,7 +221,7 @@ def split_scene(scene_id: str, slider_id: str, you: int, partner: int, contract:
             var caption = document.getElementById("{scene_id}-caption");
             var scene = SplitScene(document.getElementById("{scene_id}"), {{
                 you: {you}, partner: {partner}, contract: {contract if play_from is None else play_from},
-                youColor: "{you_color}", partnerColor: "{partner_color}",
+                youColor: "{you_color}", partnerColor: "{partner_color}", pointMoves: {POINT_MOVES},
                 onChange: function (info) {{ caption.innerHTML = SplitScene.caption(info); }},
             }});
             caption.insertAdjacentHTML("afterend", SplitScene.legend({{
@@ -315,7 +317,8 @@ def contract_tutorial() -> ModularPage:
              example=[you, partner], start=0),
         quiz("With <strong>Wages</strong>, who ends up with more points than they collected?",
              ["The player who collected more", "The player who collected fewer", "Nobody"], 1,
-             "Commission rewards whoever collects more; wages protect whoever collects fewer.",
+             "With commission each player keeps what they collected; with wages, points move "
+             "from whoever collected more to whoever collected fewer.",
              hint="Look at who received glowing points."),
         quiz(f"The contract stays the same for {CONTRACT_BLOCK} rounds. Then you and your partner "
              "each propose one. Which contract is used next?",

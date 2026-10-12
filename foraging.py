@@ -209,7 +209,9 @@ def patch_dallinger_sockets():
     command line fails. So the patches run only once the server has loaded that module: at
     import time if it is already there, otherwise from Exp.__init__ (experiment.py).
     """
-    if "dallinger.experiment_server.sockets" not in sys.modules:
+    sockets = sys.modules.get("dallinger.experiment_server.sockets")
+    # Present is not enough: the server may be half-way through importing it.
+    if not all(hasattr(sockets, name) for name in ("Channel", "ChatBackend", "redis_conn")):
         return
     _patch_dallinger_redis_pubsub_listener()
     _patch_dallinger_chat_backend_resubscribe()
@@ -512,7 +514,9 @@ class ForagingControl(Control):
 
     def get_bot_response(self, experiment, bot, page, prompt):
         # Uneven random hauls, so that test games reach the partner-out and solo branches.
-        return dict(EMPTY_STATS, coins_collected=random.randint(0, 9))
+        # FORAGING_BOT_POINTS="6,12" gives richer bots, which survive to the contract proposal.
+        low, high = (int(n) for n in os.environ.get("FORAGING_BOT_POINTS", "0,9").split(","))
+        return dict(EMPTY_STATS, coins_collected=random.randint(low, high))
 
 
 class ForagingPage(ModularPage):

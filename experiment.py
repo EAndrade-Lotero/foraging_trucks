@@ -13,6 +13,7 @@ from psynet.trial.static import StaticNode, StaticTrial, StaticTrialMaker
 
 from .foraging import (
     FORAGING_DURATION,
+    GRID_SIZE,
     MIN_PLAYERS,
     PLAYER_COLORS,
     ROUND_TERRAINS,
@@ -86,21 +87,22 @@ def current_contract(participant: Participant) -> float:
 
 
 def transfer(contract: float, own: int, partner: int) -> int:
-    """Points the first player gives to the other under the commission-wages rule (slides 11-13).
+    """Moves the first player gives to the other under the commission-wages rule (slides 11-13).
 
-    Commission keeps (1 - contract) of your own points; wages pool the rest of both players'
-    points and split the pot equally. Together that is own - contract * (own - partner) / 2, so
-    the rule is one transfer between the players, rounded to a whole point (half away from zero)
-    so that both shares are whole and still add up to what the two collected.
-    static/split_scene.js draws the same rule.
+    `own` and `partner` are the points each one collected. Commission keeps (1 - contract) of
+    your own; wages pool the rest of both and split the pot equally. Together that is one
+    transfer of contract * (own - partner) / 2 points. It is counted in moves (POINT_MOVES per
+    point, an even number) so that full wages always give exactly equal shares; only in-between
+    contracts round, to the nearest whole move. static/split_scene.js draws the same rule.
     """
-    gap = contract * (own - partner) / 2
+    gap = contract * (own - partner) * POINT_MOVES / 2
     whole = int(abs(gap) + 0.5 + 1e-9)
     return whole if gap >= 0 else -whole
 
 
 def split(contract: float, own: int, partner: int) -> int:
-    return own - transfer(contract, own, partner)
+    """Moves the first player gets from the points both collected."""
+    return own * POINT_MOVES - transfer(contract, own, partner)
 
 
 def signed(n: int) -> str:
@@ -120,12 +122,18 @@ def moves(n: int) -> str:
 
 
 def points_collected(participant: Participant) -> int:
+    """Points reported by the board page (clamped: the answer comes from the browser)."""
     answer = last_valid_answer(participant, "foraging_page")
-    return int(answer.get("coins_collected", 0)) if isinstance(answer, dict) else 0
+    raw = answer.get("coins_collected", 0) if isinstance(answer, dict) else 0
+    return int(min(max(_as_float(raw), 0), GRID_SIZE * GRID_SIZE))
 
 
 def moves_invested(participant: Participant) -> int:
-    return round(_as_float(last_valid_answer(participant, "buy_moves")))
+    """The invest-slider answer, kept within what the slider allowed (the browser sends it)."""
+    top, _ = invest_slider(bank(participant))
+    step = MOVE_STEP if top >= MOVE_STEP else 1
+    raw = int(min(max(_as_float(last_valid_answer(participant, "buy_moves")), 0), top))
+    return raw - raw % step
 
 
 def bank(participant: Participant) -> int:
@@ -168,15 +176,14 @@ def score_round(group, participants, participant, barrier):
         others = [q for q in players if q.id != p.id]
         own = collected[p.id]
         other = collected[others[0].id] if others else 0
-        share = own if solo else split(contract, own, other)
+        gained = own * POINT_MOVES if solo else split(contract, own, other)
         food = FOOD_MOVES * (SOLO_FOOD_FACTOR if solo else 1)
         invested = moves_invested(p)
-        score = share * POINT_MOVES - invested - food
+        score = gained - invested - food
         round_number = len(results(p)) + 1
         result = dict(
             round=round_number, solo=solo, contract=None if solo else contract,
-            own=own, other=other, share=share, invested=invested, food=food,
-            gained=share * POINT_MOVES, score=score,
+            own=own, other=other, gained=gained, invested=invested, food=food, score=score,
         )
         p.var.set("results", results(p) + [result])
         scores = p.var.get("scores", {})
@@ -202,9 +209,8 @@ def average_proposals(group, participants, participant, barrier):
     ]
     proposals = [p for p in proposals if p is not None]
     if proposals:
-        # Rounded to the slider's 10% steps.
-        average = sum(proposals) / len(proposals)
-        group.var.set("contract", int(average * 10 + 0.5) / 10)
+        # The exact average (it can fall between the slider's 10% marks, e.g. 5%).
+        group.var.set("contract", sum(proposals) / len(proposals))
 
 
 def slider_preview(slider_id: str, output_id: str, js_body: str) -> str:
@@ -279,7 +285,11 @@ def colors(participant: Participant) -> tuple:
 
 
 def invest_slider(have: int) -> tuple:
-    """Largest investment and number of slider stops, never more than the bank."""
+    """Largest investment and number of slider stops, never more than the bank.
+
+    The slider moves in steps of MOVE_STEP; with fewer than MOVE_STEP moves in the bank it
+    moves one by one, so that those last moves can still be invested.
+    """
     if have >= MOVE_STEP:
         top = min(MAX_MOVES, have - have % MOVE_STEP)
         return top, top // MOVE_STEP + 1
@@ -296,7 +306,10 @@ def buy_moves_page(participant: Participant, round_index: int) -> ModularPage:
             f"{SOLO_MAX_ROUNDS - solo_rounds(participant)} more rounds."
         )
     else:
-        situation = f"Contract: <strong>{contract_label(current_contract(participant))}</strong>."
+        situation = (
+            f"Contract: <strong>{contract_label(current_contract(participant))}</strong>. "
+            f"Food costs {FOOD_MOVES} moves each round."
+        )
     preview = slider_preview(
         "moves-slider",
         "moves-output",
@@ -309,8 +322,8 @@ def buy_moves_page(participant: Participant, round_index: int) -> ModularPage:
         f"""
         <h3>Round {round_index + 1} of {N_ROUNDS}: invest moves</h3>
         <p>You have <strong>{have} moves</strong> in your bank. <strong>How many do you want to
-        invest in this round?</strong> They are the steps your pac-man can take. Each point you
-        collect gives you {POINT_MOVES} moves back.</p>
+        invest in this round?</strong> They are the steps your pac-man can take. After the round,
+        the points are shared with the contract and turned into moves ({POINT_MOVES} per point).</p>
         <p>{situation}</p>
         {preview}
         {slider_frame("moves-slider", "0 moves", f"{top} moves", n_stops, below="moves-output")}
@@ -337,7 +350,7 @@ def ledger(r: dict, after: int) -> str:
     food = "Food (alone: × " + str(SOLO_FOOD_FACTOR) + ")" if r["solo"] else "Food"
     return f"""
         <table class="points-table">
-            <tr><td>Your {points(r["share"])}</td><td class="num">{signed(r["gained"])} moves</td></tr>
+            <tr><td>Your share of the points</td><td class="num">{signed(r["gained"])} moves</td></tr>
             <tr><td>Moves you invested</td><td class="num">{signed(-r["invested"])}</td></tr>
             <tr><td>{food}</td><td class="num">{signed(-r["food"])}</td></tr>
             <tr class="total"><td>This round</td><td class="num">{signed(r["score"])}</td></tr>
@@ -398,7 +411,7 @@ def propose_contract_page(participant: Participant) -> ModularPage:
         "propose_contract",
         Prompt(prompt),
         SliderControl(
-            start_value=contract,
+            start_value=round(contract * 10) / 10,  # the nearest mark of the slider
             min_value=0,
             max_value=1,
             n_steps=CONTRACT_STEPS,
@@ -589,9 +602,10 @@ class Exp(psynet.experiment.Experiment):
         SimpleGrouper(
             GROUP_TYPE,
             initial_group_size=MIN_PLAYERS,
-            max_group_size=MIN_PLAYERS,
             min_group_size=MIN_PLAYERS,
-            join_existing_groups=True,
+            # Pairs form only from players waiting together: PsyNet would otherwise let a new
+            # player join any group with room, including one whose partner ran out of moves.
+            join_existing_groups=False,
             max_wait_time=120,
             waiting_logic=wait_page(
                 "Waiting for a partner to join you. Please keep this page open; "

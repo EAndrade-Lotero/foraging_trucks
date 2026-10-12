@@ -337,7 +337,7 @@ def tutorial_page() -> InfoPage:
             <ol>
                 <li><strong>Invest moves</strong> from your bank: they are the steps your
                     pac-man can take.</li>
-                <li><strong>Collect points</strong> on a dark board.</li>
+                <li><strong>Collect points</strong> in a dark cave, with a torch.</li>
                 <li><strong>Share the points</strong> with the contract. The game turns them into
                     moves for you and pays for food.</li>
             </ol>

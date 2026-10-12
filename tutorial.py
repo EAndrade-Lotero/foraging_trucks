@@ -157,7 +157,7 @@ def moving_tutorial() -> ModularPage:
     partner = dict(x=8, y=8, color=PLAYER_COLORS[1], coins=0, moves_left=0,
                    trajectory=[[8, 5], [8, 6], [8, 7], [8, 8]], connected=True)
     prompt = PracticeBoardPrompt(
-        """<h3>Tutorial 2 of 3: moving in the dark</h3>
+        """<h3>Tutorial 2 of 3: moving in the cave</h3>
         <p>This is a practice board. Follow the yellow box on the right.</p>""",
         players={"0": me, "1": partner},
         coins=[{"id": 0, "x": 4, "y": 7}],
@@ -166,7 +166,7 @@ def moving_tutorial() -> ModularPage:
     steps = [
         dict(type="board", check="me.x === 2 && me.y === 6", target_cell=[2, 6],
              text="Your pac-man has the <strong>white ring</strong>. The board is "
-             "<strong>dark</strong>: points stay hidden until they are in the lit area around you. "
+             "a <strong>dark cave</strong>: your torch lights the squares around you, and points only show up there. "
              "You can always see your partner and both trails.<br>Use the arrow keys "
              "(&uarr; &darr; &larr; &rarr;, or W A S D) to walk to the <strong>orange X</strong>.",
              hint="If you went the wrong way, click Restart this step.",

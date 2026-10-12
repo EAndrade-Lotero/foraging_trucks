@@ -97,11 +97,12 @@
     </div>
     <div id="foraging-legend">
         Move with the arrow keys or WASD. The pac-man with the <strong>white ring</strong> is you.
-        You only see points in the squares next to you; coloured squares show where each of you has been.
+        Your torch lights the squares next to you, and you only see points there. Coloured squares show where each of you has been.
     </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script src="/static/cave.js"></script>
 <script>
 (function () {
     var ROOM_ID = {{ config.room_id | tojson }};
@@ -133,6 +134,7 @@
         coins: [],
     };
     var renderer, scene, camera, boardGroup, entityMeshes = {};
+    var cave = null, caveClock = null;  // torch-lit cave floor (static/cave.js)
     var cellSize = 1;
     var boardOffset = (GRID_SIZE - 1) / 2;
 
@@ -330,33 +332,9 @@
         boardGroup = new THREE.Group();
         scene.add(boardGroup);
 
-        var floorGeo = new THREE.PlaneGeometry(
-            GRID_SIZE * cellSize, GRID_SIZE * cellSize
-        );
-        var floorMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
-        var floor = new THREE.Mesh(floorGeo, floorMat);
-        boardGroup.add(floor);
-
-        var gridMat = new THREE.LineBasicMaterial({ color: 0x3a3a3a });
-        var half = (GRID_SIZE * cellSize) / 2;
-        for (var i = 0; i <= GRID_SIZE; i++) {
-            var offset = -half + i * cellSize;
-            var hVerts = new Float32Array([
-                -half, offset, 0.08,
-                half, offset, 0.08,
-            ]);
-            var hGeo = new THREE.BufferGeometry();
-            hGeo.setAttribute("position", new THREE.BufferAttribute(hVerts, 3));
-            boardGroup.add(new THREE.Line(hGeo, gridMat));
-
-            var vVerts = new Float32Array([
-                offset, -half, 0.08,
-                offset, half, 0.08,
-            ]);
-            var vGeo = new THREE.BufferGeometry();
-            vGeo.setAttribute("position", new THREE.BufferAttribute(vVerts, 3));
-            boardGroup.add(new THREE.Line(vGeo, gridMat));
-        }
+        // Cave: stone floor in the dark, lit by a torch on the cells you can see.
+        cave = CaveView.build(boardGroup, GRID_SIZE, VIEW_RADIUS);
+        caveClock = new THREE.Clock();
 
         localState.players = JSON.parse(JSON.stringify(KNOWN_PLAYERS));
         syncMeshes();
@@ -366,38 +344,18 @@
     function animate() {
         requestAnimationFrame(animate);
         if (STYLE === "trucks") trucks.animate();
+        if (cave) cave.tick(caveClock.getElapsedTime());
         if (renderer && scene && camera) {
             renderer.render(scene, camera);
         }
     }
 
-    function makePacmanMesh(color, isSelf, connected) {
-        var group = new THREE.Group();
-        var bodyMat = new THREE.MeshBasicMaterial({
-            color: connected ? parseColor(color) : new THREE.Color(0x777777),
-            side: THREE.DoubleSide,
-        });
-        var bodyGeo = new THREE.CircleGeometry(0.34, 32, 0.15 * Math.PI, 1.7 * Math.PI);
-        group.add(new THREE.Mesh(bodyGeo, bodyMat));
-
-        if (isSelf) {
-            var ringGeo = new THREE.RingGeometry(0.36, 0.42, 32);
-            var ringMat = new THREE.MeshBasicMaterial({
-                color: 0xffffff,
-                side: THREE.DoubleSide,
-            });
-            group.add(new THREE.Mesh(ringGeo, ringMat));
-        }
-        return group;
-    }
-
-    function makeCoinMesh() {
-        var geo = new THREE.CircleGeometry(0.16, 24);
-        var mat = new THREE.MeshBasicMaterial({
-            color: 0x00008a,
-            side: THREE.DoubleSide,
-        });
-        return new THREE.Mesh(geo, mat);
+    // Faces the direction of the last move (right at the start).
+    function facing(player) {
+        var t = player.trajectory || [];
+        if (t.length < 2) return 0;
+        var a = t[t.length - 2], b = t[t.length - 1];
+        return Math.atan2(a[1] - b[1], b[0] - a[0]);
     }
 
     function syncMeshes() {
@@ -418,33 +376,30 @@
             return !me || (Math.abs(x - me.x) <= VIEW_RADIUS && Math.abs(y - me.y) <= VIEW_RADIUS);
         }
 
+        if (cave) {
+            if (me) {
+                var lightPos = gridToWorld(me.x, me.y);
+                cave.setLight(lightPos.x, lightPos.y);
+            } else {
+                cave.hideLight();
+            }
+        }
+
         (localState.coins || []).forEach(function (coin, idx) {
             if (!inView(coin.x, coin.y)) return;
             var pos = gridToWorld(coin.x, coin.y);
-            var mesh = makeCoinMesh();
-            mesh.position.set(pos.x, pos.y, 0.05);
+            var mesh = CaveView.point();
+            mesh.position.set(pos.x, pos.y, 0.075);
             boardGroup.add(mesh);
             entityMeshes["coin_" + idx] = mesh;
         });
-
-        var seenMat = new THREE.MeshBasicMaterial({ color: 0xebf760 });
-        for (var fx = 0; fx < GRID_SIZE; fx++) {
-            for (var fy = 0; fy < GRID_SIZE; fy++) {
-                if (!inView(fx, fy)) continue;
-                var cell = new THREE.Mesh(new THREE.PlaneGeometry(cellSize, cellSize), seenMat);
-                var cpos = gridToWorld(fx, fy);
-                cell.position.set(cpos.x, cpos.y, 0.04);
-                boardGroup.add(cell);
-                entityMeshes["seen_" + fx + "_" + fy] = cell;
-            }
-        }
 
         // Trace: squares a pac-man has visited are tinted with its colour (not dots,
         // which would look like coins).
         Object.keys(localState.players || {}).forEach(function (pid) {
             var player = localState.players[pid];
             var tint = new THREE.MeshBasicMaterial({
-                color: parseColor(player.color), transparent: true, opacity: 0.28,
+                color: parseColor(player.color), transparent: true, opacity: 0.3,
             });
             var visited = {};
             (player.trajectory || []).forEach(function (step) {
@@ -475,7 +430,7 @@
         Object.keys(localState.players || {}).forEach(function (pid) {
             var player = localState.players[pid];
             var pos = gridToWorld(player.x, player.y);
-            var mesh = makePacmanMesh(player.color, pid === MY_ID, player.connected !== false);
+            var mesh = CaveView.pacman(player.color, pid === MY_ID, player.connected !== false, facing(player));
             mesh.position.set(pos.x, pos.y, 0.1);
             boardGroup.add(mesh);
             entityMeshes["player_" + pid] = mesh;

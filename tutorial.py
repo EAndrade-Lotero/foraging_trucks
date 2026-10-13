@@ -15,10 +15,7 @@ from .foraging import (
     VIEW_RADIUS,
 )
 from .game_parameters import (
-    FOOD_MOVES,
-    MAX_MOVES,
-    MOVE_STEP,
-    START_MOVES,
+    POINT_MOVES,
 )
 
 TUTORIAL_SECONDS = 60
@@ -91,33 +88,39 @@ def range_input(slider_id: str, maximum: float, step: float, value: float) -> st
 def buying_moves_tutorial() -> ModularPage:
     """Investing (critiques of 12-oct): bank vs. this round's steps, unused moves are spent,
     and running out ends your game while your partner plays on. No arithmetic."""
-    top = min(START_MOVES, MAX_MOVES)  # as on the real page: never more than your bank
+    bank = 6  # practice bank, in points (Andrade's sketch: food -> moves)
     prompt = Prompt(Markup(f"""
-        <h3>Tutorial 1 of 3: investing moves</h3>
-        <p>You have <strong>{START_MOVES} moves</strong> in your bank. Each round you choose how many
-        to invest: they are the <strong>steps your pac-man can take</strong>. Try the slider.</p>
-        {range_input("tut-moves", top, MOVE_STEP, 10)}
+        <h3>Tutorial 1 of 3: points and moves</h3>
+        <p>Your <strong>bank</strong> keeps the points you collect: they are your food. Each round
+        you choose how many to invest, and <strong>each point becomes {POINT_MOVES} moves</strong>,
+        the steps your pac-man can take. Try the slider.</p>
+        <div id="tut-convert"></div>
+        <script src="/static/convert_scene.js"></script>
+        {range_input("tut-moves", bank, 1, 2)}
         <div id="tut-moves-out" class="live-value"></div>
-        {slider_frame("tut-moves", "0 moves", f"{top} moves", top // MOVE_STEP + 1, below="tut-moves-out")}
+        {slider_frame("tut-moves", "0 points", f"{bank} points", bank + 1, below="tut-moves-out")}
         <script>
         (function () {{
             var slider = document.getElementById("tut-moves");
-            function show() {{
+            var convert = ConvertScene(document.getElementById("tut-convert"),
+                                       {{bank: {bank}, perPoint: {POINT_MOVES}}});
+            function show(animate) {{
                 var v = parseInt(slider.value, 10);
+                convert.set(v, animate);
                 document.getElementById("tut-moves-out").innerHTML = "You invest <strong>" + v
-                    + " moves</strong>: " + v + " steps this round; " + ({START_MOVES} - v)
-                    + " stay in your bank";
+                    + (v === 1 ? " point" : " points") + "</strong>: " + v * {POINT_MOVES}
+                    + " moves this round; " + ({bank} - v) + " stay in your bank";
             }}
-            slider.addEventListener("input", show);
-            show();
+            slider.addEventListener("input", function () {{ show(true); }});
+            show(false);
         }})();
         </script>
     """))
     steps = [
-        dict(type="info", text=f"Practice only: nothing here changes your bank.<br>"
-             "Invested moves are spent, even if you don't use them. After each round you get "
-             f"moves for your share of the points, and food costs {FOOD_MOVES}. The game counts for "
-             "you.<br>If your bank runs out, you leave the game and your partner goes on alone."),
+        dict(type="info", text="Practice only: nothing here changes your bank.<br>"
+             "Moves you don't use are spent anyway. After each round your share of the points "
+             "goes to your bank, and you pay some for food. The game counts for you.<br>"
+             "If your bank runs out, you leave the game and your partner goes on alone."),
     ]
     return tutorial_page("tutorial_moves", prompt, steps)
 

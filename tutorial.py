@@ -27,20 +27,21 @@ class TutorialControl(NullControl):
     macro = "tutorial_steps"
     external_template = "tutorial.html"
 
-    def __init__(self, steps: list):
+    def __init__(self, steps: list, bare: bool = False):
         super().__init__()
         self.steps = steps
+        self.bare = bare  # no instruction box: only the Continue button (the page says what to do)
         self.show_next_button = False
 
     def get_bot_response(self, experiment, bot, page, prompt):
         return {"passed": True, "mistakes": 0}
 
 
-def tutorial_page(label: str, prompt, steps: list) -> ModularPage:
+def tutorial_page(label: str, prompt, steps: list, bare: bool = False) -> ModularPage:
     return ModularPage(
         label,
         prompt,
-        TutorialControl(steps),
+        TutorialControl(steps, bare),
         time_estimate=TUTORIAL_SECONDS,
         show_next_button=False,
     )
@@ -96,7 +97,7 @@ def buying_moves_tutorial() -> ModularPage:
         <p>Your <strong>bank</strong> keeps the points you collect: they are your food. Each round
         you choose how many to invest, and <strong>each point becomes {FOOD_CONVERSION} moves</strong>,
         the steps your pac-man can take.</p>
-        <div id="tut-convert"></div>
+        <div id="tut-convert" class="scene-box"></div>
         <script src="/static/convert_scene.js"></script>
         {range_input("tut-moves", bank, 1, 2)}
         <div id="tut-moves-out" class="live-value"></div>
@@ -106,15 +107,8 @@ def buying_moves_tutorial() -> ModularPage:
             <div class="tut-popup-card">
                 <div class="tut-popup-tag">Practice</div>
                 <h4 id="tut-popup-title">Invest {target} points</h4>
-                <p>Move the slider to invest <strong>{target} points</strong> and watch them turn
-                into moves.</p>
-                <ul>
-                    <li>Moves you don't use are spent anyway.</li>
-                    <li>After each round your share of the points goes to your bank, and you pay some
-                    for food. The game counts for you.</li>
-                    <li>If your bank runs out, you leave the game and your partner goes on alone.</li>
-                    <li>Nothing here changes your real bank.</li>
-                </ul>
+                <p style="margin-bottom:1.1em">Move the slider to invest <strong>{target} points</strong>
+                and watch them turn into moves.</p>
                 <button type="button" class="btn btn-primary" id="tut-popup-ok">OK</button>
             </div>
         </div>
@@ -122,13 +116,18 @@ def buying_moves_tutorial() -> ModularPage:
             .tut-popup {{ position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center;
                 justify-content: center; background: rgba(0, 0, 0, 0.55); padding: 16px; }}
             .tut-popup[hidden] {{ display: none; }}
-            .tut-popup-card {{ background: #fffbea; border: 1px solid #e8c766; border-radius: 12px;
-                max-width: 460px; padding: 1.3rem 1.4rem; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
-                line-height: 1.5; }}
-            .tut-popup-tag {{ font-size: 0.8rem; color: #8a6d00; font-weight: 600; text-transform: uppercase;
+            /* Responsive: 70% of the screen width, nearly full width on phones; the text grows
+               with the screen so it stays readable. */
+            .tut-popup-card {{ background: #fffbea; border: 1px solid #e8c766; border-radius: 14px;
+                width: 70vw; max-height: 85vh; overflow-y: auto;
+                padding: clamp(1.1rem, 2.5vw, 2.2rem) clamp(1.2rem, 3vw, 2.6rem);
+                box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3); line-height: 1.55;
+                font-size: clamp(1rem, 0.85rem + 0.6vw, 1.35rem); }}
+            .tut-popup-tag {{ font-size: 0.8em; color: #8a6d00; font-weight: 600; text-transform: uppercase;
                 letter-spacing: 0.02em; }}
-            .tut-popup-card h4 {{ margin: 0.2rem 0 0.6rem; }}
-            .tut-popup-card ul {{ padding-left: 1.1rem; margin: 0.6rem 0 1rem; color: #444; }}
+            .tut-popup-card h4 {{ margin: 0.2em 0 0.6em; font-size: 1.6em; }}
+            .tut-popup-card .btn {{ font-size: 1em; padding: 0.45em 1.6em; }}
+            @media (max-width: 640px) {{ .tut-popup-card {{ width: 94vw; }} }}
             #tut-moves-out.done {{ color: #1e7b34; }}
         </style>
         <script>
@@ -161,7 +160,7 @@ def buying_moves_tutorial() -> ModularPage:
              hint=f"Drag the slider to {target} points.",
              explanation=f"Each point became {FOOD_CONVERSION} moves for this round."),
     ]
-    return tutorial_page("tutorial_moves", prompt, steps)
+    return tutorial_page("tutorial_moves", prompt, steps, bare=True)
 
 
 class PracticeBoardPrompt(Prompt):
@@ -197,7 +196,7 @@ def moving_tutorial() -> ModularPage:
                    trajectory=[[GRID_SIZE - 2, GRID_SIZE - 5 + k] for k in range(4)], connected=True)
     prompt = PracticeBoardPrompt(
         """<h3>Tutorial 2 of 3: moving in the cave</h3>
-        <p>This is a practice board. Follow the yellow box on the right.</p>""",
+        <p>This is a practice board. Follow the instruction in the yellow box.</p>""",
         players={"0": me, "1": partner},
         coins=[{"id": 0, "x": centre, "y": centre}],
         moves=moves,
@@ -223,8 +222,8 @@ def split_scene(scene_id: str, slider_id: str, you: int, partner: int, contract:
     `contract` when the page opens (the round result).
     """
     return f"""
-        <div id="{scene_id}"></div>
-        <div id="{scene_id}-caption" class="split-caption"></div>
+        <div id="{scene_id}" class="scene-box"></div>
+        <div id="{scene_id}-caption" class="split-caption scene-box"></div>
         <script src="/static/split_scene.js"></script>
         <script>
         (function () {{

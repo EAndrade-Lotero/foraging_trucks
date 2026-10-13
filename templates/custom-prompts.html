@@ -18,7 +18,8 @@
 
     /* One status row as wide as the board: coins, moves, time. */
     #foraging-hud {
-        width: 504px;
+        width: var(--board-size, 504px);
+        max-width: 100%;
         display: grid;
         grid-template-columns: max-content 1fr max-content;
         gap: 1rem;
@@ -44,7 +45,8 @@
     }
 
     #foraging-legend {
-        width: 504px;
+        width: var(--board-size, 504px);
+        max-width: 100%;
         font-size: 0.875rem;
         color: #495057;
         line-height: 1.45;
@@ -58,7 +60,7 @@
     }
 
     #foraging-moves-bar {
-        width: 120px;
+        width: clamp(50px, 18vw, 120px);
         height: 10px;
         border-radius: 5px;
         background: #ddd;
@@ -90,7 +92,7 @@
             <div id="foraging-moves-bar"><div id="foraging-moves-fill"></div></div>
             <span id="foraging-moves-text" class="hud-value" style="min-width:8.5ch">{{ config.moves }} left</span>
         </div>
-        <div{% if config.practice %} style="visibility:hidden"{% endif %}><span class="hud-label">Time</span><span class="hud-value"><span id="foraging-timer">{{ config.timer_seconds }}</span> s</span></div>
+        <div{% if config.practice %} style="display:none"{% endif %}><span class="hud-label">Time</span><span class="hud-value"><span id="foraging-timer">{{ config.timer_seconds }}</span> s</span></div>
     </div>
     <div id="foraging-board-wrap">
         <canvas id="foraging-canvas" width="500" height="500"></canvas>
@@ -162,7 +164,7 @@
         init: function (canvas) {
             renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
             renderer.setPixelRatio(window.devicePixelRatio || 1);
-            renderer.setSize(500, 500);
+            fitBoard();
             renderer.setClearColor(0xbfe3f0);
             scene = new THREE.Scene();
             camera = new THREE.PerspectiveCamera(40, 1, 0.1, 200);
@@ -298,6 +300,22 @@
         },
     };
 
+    // Responsive board: as wide as the page column allows, but short enough that the whole
+    // board fits on screen above PsyNet's fixed footer. Re-fits when the window changes.
+    function fitBoard() {
+        if (!renderer) return;
+        var container = document.getElementById("foraging-container");
+        var canvas = document.getElementById("foraging-canvas");
+        var available = container ? container.clientWidth - 4 : 500;
+        var top = canvas.getBoundingClientRect().top + window.scrollY;
+        var footer = document.getElementById("footer");
+        var below = (footer ? footer.offsetHeight : 0) + 16;
+        var size = Math.round(Math.max(260, Math.min(available, window.innerHeight - top - below)));
+        renderer.setSize(size, size);
+        if (container) container.style.setProperty("--board-size", (size + 4) + "px");
+    }
+    window.addEventListener("resize", fitBoard);
+
     function initThree() {
         if (booted) return;
         booted = true;
@@ -318,7 +336,7 @@
 
         renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
         renderer.setPixelRatio(window.devicePixelRatio || 1);
-        renderer.setSize(500, 500);
+        fitBoard();
         renderer.setClearColor(0x000000);
 
         scene = new THREE.Scene();

@@ -31,13 +31,13 @@
         display: flex; flex-direction: column; }
     .convert-scene .cv-title { font-size: 0.78rem; color: #bbb; font-weight: 600; margin-bottom: 6px; }
     .convert-scene .cv-points { flex: 1; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 6px; }
-    .convert-scene .cv-moves { flex: 1; display: flex; flex-direction: column; gap: 5px; }
-    .convert-scene .cv-gem { width: 28px; height: 28px; transition: opacity 0.2s; }
+    .convert-scene .cv-moves { flex: 1; display: flex; flex-direction: column; gap: 0.32em; }
+    .convert-scene .cv-gem { width: 1.75em; height: 1.75em; transition: opacity 0.2s; }
     .convert-scene .cv-gem.empty { opacity: 0.12; }
-    .convert-scene .cv-row { display: flex; align-items: center; gap: 4px; height: 18px; }
-    .convert-scene .cv-mini { width: 18px; height: 18px; margin-right: 2px; }
+    .convert-scene .cv-row { display: flex; align-items: center; gap: 0.25em; height: 1.15em; }
+    .convert-scene .cv-mini { width: 1.15em; height: 1.15em; margin-right: 2px; }
     .convert-scene .cv-eq { color: #888; font-size: 0.8rem; margin: 0 3px; }
-    .convert-scene .cv-arrow { width: 18px; height: 18px; transform: scale(0); transition: transform 0.25s cubic-bezier(.3,1.6,.5,1); }
+    .convert-scene .cv-arrow { width: 1.15em; height: 1.15em; transform: scale(0); transition: transform 0.25s cubic-bezier(.3,1.6,.5,1); }
     .convert-scene .cv-arrow.in { transform: scale(1); }
     .convert-scene .cv-plus { color: #2fbf62; font-weight: 700; font-size: 0.8rem; margin-left: 6px;
         opacity: 0; transition: opacity 0.3s; }
@@ -46,8 +46,8 @@
         font-variant-numeric: tabular-nums; transition: transform 0.2s; }
     .convert-scene .cv-count small { font-size: 0.7rem; font-weight: 500; color: #bbb; margin-left: 4px; }
     .convert-scene .cv-count.bump { transform: scale(1.15); }
-    .convert-scene .cv-flow { align-self: center; width: 30px; opacity: 0.8; }
-    .convert-scene .cv-fly { position: absolute; width: 28px; height: 28px; pointer-events: none; z-index: 2;
+    .convert-scene .cv-flow { align-self: center; width: 1.9em; opacity: 0.8; }
+    .convert-scene .cv-fly { position: absolute; width: 1.75em; height: 1.75em; pointer-events: none; z-index: 2;
         transition: transform 0.45s cubic-bezier(.4,.1,.3,1); }
     `;
 
@@ -68,7 +68,7 @@
         var scene = root.querySelector(".convert-scene");
         var pointsBox = root.querySelector(".cv-points"), movesBox = root.querySelector(".cv-moves");
         var pCount = root.querySelector(".cv-pcount"), mCount = root.querySelector(".cv-mcount");
-        movesBox.style.minHeight = (bank * 23) + "px";
+        movesBox.style.minHeight = (bank * 1.47) + "em";
         for (var i = 0; i < bank; i++) {
             pointsBox.insertAdjacentHTML("beforeend", '<div class="cv-gem">' + sprite(GEM, GEM_COLORS) + "</div>");
         }

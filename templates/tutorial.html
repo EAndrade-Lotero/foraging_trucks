@@ -22,9 +22,13 @@
     #tut-restart { margin-left: 0; }
     #tut-button, #tut-restart { margin-top: 0.4rem; }
     #tut-options:empty { display: none; }
+    /* Bare: no box, only the Continue button under the page content. */
+    #tut-panel.bare { background: none; border: 0; box-shadow: none; padding: 0; margin-top: 1rem; }
+    #tut-panel.bare #tut-progress, #tut-panel.bare #tut-text, #tut-panel.bare #tut-options,
+    #tut-panel.bare #tut-feedback, #tut-panel.bare #tut-restart { display: none !important; }
 </style>
 
-<div id="tut-panel">
+<div id="tut-panel"{% if config.bare %} class="bare"{% endif %}>
     <div id="tut-progress"></div>
     <div id="tut-text"></div>
     <div id="tut-options"></div>

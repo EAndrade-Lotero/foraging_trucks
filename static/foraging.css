@@ -1,13 +1,28 @@
 /* Shared look for every page of the experiment (Experiment.css_links). */
 
-/* One reading column, same axis on every page. */
+/* Responsive: the type scales with the window, and every page uses one column that takes
+   70% of the screen (nearly all of it on phones). */
+html {
+    font-size: clamp(16px, 10px + 0.6vw, 20px);
+}
+
 #main-body {
-    max-width: 1000px;
+    width: 70vw;
+    max-width: none;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+@media (max-width: 900px) {
+    #main-body {
+        width: auto;
+        max-width: 100%;
+    }
 }
 
 /* Comfortable line length; tables, sliders and the board share the same left edge. */
 #main-body p {
-    max-width: 46rem;
+    max-width: 52rem;
 }
 
 #main-body h3 {
@@ -31,9 +46,14 @@
     margin-bottom: 0.35rem;
 }
 
+/* Scenes (points -> moves, the split), sliders and tables share one width, so a page lines up. */
+.scene-box {
+    max-width: min(100%, 48rem);
+}
+
 /* The value a slider is showing right now. */
 .live-value {
-    max-width: 480px;
+    max-width: min(100%, 48rem);
     text-align: center;
     font-size: 1.2rem;
     font-weight: 600;
@@ -43,7 +63,7 @@
 /* Points tables: split, score and summary. */
 .points-table {
     width: 100%;
-    max-width: 600px;
+    max-width: min(100%, 48rem);
     margin: 0.6rem 0 1rem;
     table-layout: fixed;
     border-collapse: collapse;
@@ -87,7 +107,7 @@
 /* Every slider (PsyNet's and the tutorials') looks the same. */
 #main-body input[type=range] {
     width: 100%;
-    max-width: 480px;
+    max-width: min(100%, 48rem);
     display: block;
     margin: 1rem 0 0;
 }
@@ -96,7 +116,7 @@
 .slider-ends {
     display: flex;
     justify-content: space-between;
-    max-width: 480px;
+    max-width: min(100%, 48rem);
     margin: 0.2rem 0 0;
     font-size: 0.9rem;
     line-height: 1.4;
@@ -121,7 +141,7 @@
     position: relative;
     height: 5px;
     margin: 0 0 0 11px;
-    max-width: calc(480px - 22px);
+    max-width: calc(min(100%, 48rem) - 22px);
 }
 
 .slider-ticks span {
@@ -133,18 +153,18 @@
 }
 
 /* Tutorial: the instruction box gets its own column instead of floating over the page. */
-#main-body:has(#tut-panel) {
+#main-body:has(#tut-panel:not(.bare)) {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 300px;
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 28%);
     column-gap: 32px;
     align-items: start;
 }
 
-#main-body:has(#tut-panel) > * {
+#main-body:has(#tut-panel:not(.bare)) > * {
     grid-column: 1;
 }
 
-#main-body:has(#tut-panel) > #tut-panel {
+#main-body:has(#tut-panel:not(.bare)) > #tut-panel {
     grid-column: 2;
     grid-row: 1 / span 6;
     position: sticky;
@@ -152,7 +172,7 @@
 }
 
 @media (max-width: 1000px) {
-    #main-body:has(#tut-panel) {
+    #main-body:has(#tut-panel:not(.bare)) {
         display: block;
     }
 }
@@ -210,7 +230,7 @@ body #main-body:has(#wait-page) {
 
 /* A live table under a slider (propose page) lines up with the other tables. */
 .live-value:has(table) {
-    max-width: 600px;
+    max-width: min(100%, 48rem);
     text-align: left;
 }
 

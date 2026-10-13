@@ -90,25 +90,24 @@ def range_input(slider_id: str, maximum: float, step: float, value: float) -> st
 def buying_moves_tutorial() -> ModularPage:
     """Investing (critiques of 12-oct): bank vs. this round's steps, unused moves are spent,
     and running out ends your game while your partner plays on. No arithmetic."""
-    bank = 6  # practice bank, in points (Andrade's sketch: food -> moves)
-    target = 5  # the participant must invest exactly this many points to continue
+    bank = 6  # practice food bank (Andrade's sketch: food -> moves)
+    target = 5  # the participant must invest exactly this much food to continue
     prompt = Prompt(Markup(f"""
-        <h3>Tutorial 1 of 3: points and moves</h3>
-        <p>Your <strong>bank</strong> keeps the points you collect: they are your food. Each round
-        you choose how many to invest, and <strong>each point becomes {FOOD_CONVERSION} moves</strong>,
-        the steps your pac-man can take.</p>
+        <h3>Tutorial 1 of 3: food and moves</h3>
+        <p>This is your <strong>food bank</strong>. Here you can turn food into moves for foraging.
+        <strong>Each unit of food is worth {FOOD_CONVERSION} moves.</strong></p>
         <div id="tut-convert" class="scene-box"></div>
         <script src="/static/convert_scene.js"></script>
         {range_input("tut-moves", bank, 1, 2)}
         <div id="tut-moves-out" class="live-value"></div>
-        {slider_frame("tut-moves", "0 points", f"{bank} points", bank + 1, below="tut-moves-out")}
+        {slider_frame("tut-moves", "0 food", f"{bank} food", bank + 1, below="tut-moves-out")}
 
         <div id="tut-popup" class="tut-popup" role="dialog" aria-modal="true" aria-labelledby="tut-popup-title">
             <div class="tut-popup-card">
                 <div class="tut-popup-tag">Practice</div>
-                <h4 id="tut-popup-title">Invest {target} points</h4>
-                <p style="margin-bottom:1.1em">Move the slider to invest <strong>{target} points</strong>
-                and watch them turn into moves.</p>
+                <h4 id="tut-popup-title">Invest {target} food</h4>
+                <p style="margin-bottom:1.1em">Move the slider to invest <strong>{target} food</strong>
+                and watch it turn into moves.</p>
                 <button type="button" class="btn btn-primary" id="tut-popup-ok">OK</button>
             </div>
         </div>
@@ -128,6 +127,7 @@ def buying_moves_tutorial() -> ModularPage:
             .tut-popup-card h4 {{ margin: 0.2em 0 0.6em; font-size: 1.6em; }}
             .tut-popup-card .btn {{ font-size: 1em; padding: 0.45em 1.6em; }}
             @media (max-width: 640px) {{ .tut-popup-card {{ width: 94vw; }} }}
+            #tut-moves-out {{ font-weight: 400; }}
             #tut-moves-out.done {{ color: #1e7b34; }}
         </style>
         <script>
@@ -147,7 +147,7 @@ def buying_moves_tutorial() -> ModularPage:
                 // The instruction again, under the slider; a tick once it is done.
                 var done = v === {target};
                 out.classList.toggle("done", done);
-                out.innerHTML = (done ? "&#10003; " : "") + "Invest <strong>{target} points</strong>";
+                out.innerHTML = "<em>" + (done ? "&#10003; " : "") + "Instruction: Invest {target} food</em>";
             }}
             slider.addEventListener("input", function () {{ show(true); }});
             show(false);
@@ -156,9 +156,9 @@ def buying_moves_tutorial() -> ModularPage:
     """))
     steps = [
         dict(type="slider", slider="tut-moves", target=target,
-             text=f"Move the slider to invest <strong>{target} points</strong>.",
-             hint=f"Drag the slider to {target} points.",
-             explanation=f"Each point became {FOOD_CONVERSION} moves for this round."),
+             text=f"Move the slider to invest <strong>{target} food</strong>.",
+             hint=f"Drag the slider to {target} food.",
+             explanation=f"Each unit of food became {FOOD_CONVERSION} moves."),
     ]
     return tutorial_page("tutorial_moves", prompt, steps, bare=True)
 

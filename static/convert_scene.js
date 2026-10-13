@@ -1,9 +1,9 @@
-// Convert scene: points (food) in your bank turn into moves for this round, live with the
+// Convert scene: food in your bank turn into moves for this round, live with the
 // invest slider (Andrade's sketch, 13-oct: "Food -> Movimientos"). Same look as the board:
 // pixel-art sapphire gems on a dark panel. Each gem you invest becomes its row of arrows.
 //
 //   var scene = ConvertScene(document.getElementById("box"), {bank: 6, perPoint: 6});
-//   scene.set(2, true);   // invest 2 points, animated
+//   scene.set(2, true);   // invest 2 food, animated
 (function () {
     var GEM = ["...OOOO...", "..OLLBBO..", ".OLWBBBBO.", "OLWBBBBBDO", "OLBBBBBBDO",
                "OBBBBBBBDO", "OBBBBBBDDO", ".OBBBBDDO.", "..ODDDDO..", "...OOOO..."];
@@ -60,10 +60,10 @@
         }
         var bank = opts.bank || 6, perPoint = opts.perPoint || 6;
         root.innerHTML = '<div class="convert-scene">'
-            + '<div class="cv-box"><div class="cv-title">Your bank: points (food)</div><div class="cv-points"></div>'
+            + '<div class="cv-box"><div class="cv-points"></div>'
             + '<div class="cv-count cv-pcount"></div></div>'
             + '<div class="cv-flow">' + sprite(ARROW, { O: "#333", G: "#777", L: "#999" }) + "</div>"
-            + '<div class="cv-box"><div class="cv-title">Moves for this round</div><div class="cv-moves"></div>'
+            + '<div class="cv-box"><div class="cv-moves"></div>'
             + '<div class="cv-count cv-mcount"></div></div></div>';
         var scene = root.querySelector(".convert-scene");
         var pointsBox = root.querySelector(".cv-points"), movesBox = root.querySelector(".cv-moves");
@@ -76,7 +76,7 @@
         var invested = 0;
 
         function counter(el, n, unit) {
-            var text = n + "<small>" + unit + (n === 1 ? "" : "s") + "</small>";
+            var text = n + "<small>" + unit + (n === 1 || unit === " food" ? "" : "s") + "</small>";
             if (el.innerHTML === text) return;
             el.innerHTML = text;
             el.classList.add("bump");
@@ -142,7 +142,7 @@
                 })(back);
                 invested -= 1;
             }
-            counter(pCount, bank - n, " point");
+            counter(pCount, bank - n, " food");
             counter(mCount, n * perPoint, " move");
         }
 

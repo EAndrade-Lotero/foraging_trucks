@@ -98,8 +98,10 @@
         <canvas id="foraging-canvas" width="500" height="500"></canvas>
     </div>
     <div id="foraging-legend">
+        {% if config.legend %}{{ config.legend }}{% else %}
         Move with the arrow keys or WASD. The pac-man with the <strong>white ring</strong> is you.
         Your torch lights the squares next to you, and you only see points there. Coloured squares show where each of you has been.
+        {% endif %}
     </div>
 </div>
 
@@ -300,8 +302,9 @@
         },
     };
 
-    // Responsive board: as wide as the page column allows, but short enough that the whole
-    // board fits on screen above PsyNet's fixed footer. Re-fits when the window changes.
+    // Responsive board: as wide as the page column allows, but short enough that the board,
+    // the line under it and the tutorial's Continue fit on screen above PsyNet's fixed footer.
+    // Re-fits when the window changes.
     function fitBoard() {
         if (!renderer) return;
         var container = document.getElementById("foraging-container");
@@ -309,12 +312,17 @@
         var available = container ? container.clientWidth - 4 : 500;
         var top = canvas.getBoundingClientRect().top + window.scrollY;
         var footer = document.getElementById("footer");
-        var below = (footer ? footer.offsetHeight : 0) + 16;
+        // Leave room for the line under the board and, in the tutorial, its Continue button.
+        var legend = document.getElementById("foraging-legend");
+        var button = document.getElementById("tut-button");
+        var below = (footer ? footer.offsetHeight : 0) + (legend ? legend.offsetHeight + 12 : 0)
+            + (button ? button.offsetHeight + 24 : 0) + 16;
         var size = Math.round(Math.max(260, Math.min(available, window.innerHeight - top - below)));
         renderer.setSize(size, size);
         if (container) container.style.setProperty("--board-size", (size + 4) + "px");
     }
     window.addEventListener("resize", fitBoard);
+    window.addEventListener("load", fitBoard);
 
     function initThree() {
         if (booted) return;

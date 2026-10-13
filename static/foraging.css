@@ -264,3 +264,11 @@ body #main-body:has(#wait-page) {
     background: #fdf0ef;
     border-radius: 4px;
 }
+
+/* An instruction under the practice board (tutorial 2), like the one under tutorial 1's slider. */
+.board-instruction {
+    text-align: center;
+    font-size: 1.15rem;
+    color: #212529;
+    margin-top: 0.3rem;
+}

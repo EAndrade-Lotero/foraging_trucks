@@ -178,8 +178,9 @@ class PracticeBoardPrompt(Prompt):
     macro = "foraging_board"
     external_template = "custom-prompts.html"
 
-    def __init__(self, text: str, players: dict, coins: list, moves: int):
+    def __init__(self, text: str, players: dict, coins: list, moves: int, legend: str = ""):
         super().__init__(text=Markup(text))
+        self.legend = Markup(legend)  # replaces the usual line under the board
         self.practice = True
         self.room_id = "practice"
         self.participant_id = 0
@@ -204,12 +205,12 @@ def moving_tutorial() -> ModularPage:
     partner = dict(x=GRID_SIZE - 2, y=GRID_SIZE - 2, color=PLAYER_COLORS[1], coins=0, moves_left=0,
                    trajectory=[[GRID_SIZE - 2, GRID_SIZE - 5 + k] for k in range(4)], connected=True)
     prompt = PracticeBoardPrompt(
-        """<h3>Tutorial 2 of 3: moving in the cave</h3>
-        <p>This is a practice board.</p>
-        <p class="tut-instruction"><em>Instruction: collect the point in the centre of the cave.</em></p>""",
+        """<h3>Tutorial 2 of 3: moving in the cave</h3>""",
         players={"0": me, "1": partner},
         coins=[{"id": 0, "x": centre, "y": centre}],
         moves=moves,
+        legend='<div class="board-instruction"><em>Instruction: collect the point in the '
+               'centre of the cave.</em></div>',
     )
     steps = [
         dict(type="board", check=f"me.x === {centre} && me.y === {centre}",

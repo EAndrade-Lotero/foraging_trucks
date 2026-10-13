@@ -22,6 +22,22 @@
     #tut-restart { margin-left: 0; }
     #tut-button, #tut-restart { margin-top: 0.4rem; }
     #tut-options:empty { display: none; }
+    /* Popups (the page's instructions and the "wrong answer" one): 70% of the screen width,
+       nearly full width on phones; the text grows with the screen so it stays readable. */
+    .tut-popup { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center;
+        justify-content: center; background: rgba(0, 0, 0, 0.55); padding: 16px; }
+    .tut-popup[hidden] { display: none; }
+    .tut-popup-card { background: #fffbea; border: 1px solid #e8c766; border-radius: 14px;
+        width: 70vw; max-height: 85vh; overflow-y: auto;
+        padding: clamp(1.1rem, 2.5vw, 2.2rem) clamp(1.2rem, 3vw, 2.6rem);
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3); line-height: 1.55;
+        font-size: clamp(1rem, 0.85rem + 0.6vw, 1.35rem); }
+    .tut-popup-tag { font-size: 0.8em; color: #8a6d00; font-weight: 600; text-transform: uppercase;
+        letter-spacing: 0.02em; }
+    .tut-popup-tag.bad { color: #b02a37; }
+    .tut-popup-card h4 { margin: 0.2em 0 0.6em; font-size: 1.6em; }
+    .tut-popup-card .btn { font-size: 1em; padding: 0.45em 1.6em; }
+    @media (max-width: 640px) { .tut-popup-card { width: 94vw; } }
     /* Bare: no box, only the Continue button under the page content. */
     #tut-panel.bare { background: none; border: 0; box-shadow: none; padding: 0; margin-top: 1rem; }
     #tut-panel.bare #tut-progress, #tut-panel.bare #tut-text, #tut-panel.bare #tut-options,
@@ -35,6 +51,14 @@
     <div id="tut-feedback"></div>
     <button type="button" id="tut-button" class="btn btn-primary">Check</button>
     <button type="button" id="tut-restart" class="btn btn-outline-secondary" style="display:none">Restart this step</button>
+</div>
+<div id="tut-wrong" class="tut-popup" role="alertdialog" aria-modal="true" aria-labelledby="tut-wrong-title" hidden>
+    <div class="tut-popup-card">
+        <div class="tut-popup-tag bad">Try again</div>
+        <h4 id="tut-wrong-title">Incorrect investment</h4>
+        <p id="tut-wrong-text" style="margin-bottom:1.1em"></p>
+        <button type="button" class="btn btn-primary" id="tut-wrong-ok">OK</button>
+    </div>
 </div>
 
 <script>
@@ -60,8 +84,8 @@
         }).join("");
         var button = el("tut-button");
         // Board and slider steps pass by themselves; the button appears once they do.
-        button.style.display = (s.type === "board" || s.type === "slider") ? "none" : "";
-        button.textContent = s.type === "info" ? "Continue" : (s.type === "quiz" ? "Check answer" : "Check");
+        button.style.display = (s.type === "board" || s.type === "slider") && !s.wrong ? "none" : "";
+        button.textContent = s.type === "info" || s.wrong ? "Continue" : (s.type === "quiz" ? "Check answer" : "Check");
         el("tut-restart").style.display = s.type === "board" ? "" : "none";
         // The practice board only moves while a board step is active.
         window.dispatchEvent(new CustomEvent("practice-enable", { detail: s.type === "board" }));
@@ -112,9 +136,19 @@
 
     function check() {
         var s = STEPS[step];
-        // A slider step only continues while the slider is still on its target.
-        if (passed && s.type === "slider"
-            && Math.abs(parseFloat(el(s.slider).value) - s.target) >= 1e-6) return;
+        // A slider step only continues while the slider is still on its target; with `wrong`,
+        // pressing Continue off target explains what to do in a popup.
+        if (s.type === "slider" && Math.abs(parseFloat(el(s.slider).value) - s.target) >= 1e-6) {
+            if (s.wrong) {
+                mistakes += 1;
+                attempts[step + 1] = (attempts[step + 1] || 0) + 1;
+                el("tut-wrong-text").innerHTML = s.wrong;
+                el("tut-wrong").hidden = false;
+                el("tut-wrong-ok").focus();
+            }
+            if (passed || s.wrong) return;
+        }
+        if (s.type === "slider" && s.wrong) return next();
         if (passed || s.type === "info") return next();
         if (s.type === "slider") {
             var value = parseFloat(el(s.slider).value);
@@ -144,7 +178,7 @@
         var onTarget = Math.abs(parseFloat(event.target.value) - s.target) < 1e-6;
         if (onTarget && !passed) {
             feedback(true, s.explanation);
-        } else if (!onTarget && passed) {
+        } else if (!onTarget && passed && !s.wrong) {
             passed = false;
             el("tut-button").style.display = "none";
             el("tut-feedback").innerHTML = "";
@@ -152,6 +186,7 @@
         }
     });
     el("tut-button").addEventListener("click", check);
+    el("tut-wrong-ok").addEventListener("click", function () { el("tut-wrong").hidden = true; });
     // Undo the moves of the current board step (e.g. after pressing the wrong arrow).
     el("tut-restart").addEventListener("click", function () {
         window.dispatchEvent(new CustomEvent("practice-restore"));

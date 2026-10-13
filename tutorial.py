@@ -133,21 +133,6 @@ def buying_moves_tutorial() -> ModularPage:
             </div>
         </div>
         <style>
-            .tut-popup {{ position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center;
-                justify-content: center; background: rgba(0, 0, 0, 0.55); padding: 16px; }}
-            .tut-popup[hidden] {{ display: none; }}
-            /* Responsive: 70% of the screen width, nearly full width on phones; the text grows
-               with the screen so it stays readable. */
-            .tut-popup-card {{ background: #fffbea; border: 1px solid #e8c766; border-radius: 14px;
-                width: 70vw; max-height: 85vh; overflow-y: auto;
-                padding: clamp(1.1rem, 2.5vw, 2.2rem) clamp(1.2rem, 3vw, 2.6rem);
-                box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3); line-height: 1.55;
-                font-size: clamp(1rem, 0.85rem + 0.6vw, 1.35rem); }}
-            .tut-popup-tag {{ font-size: 0.8em; color: #8a6d00; font-weight: 600; text-transform: uppercase;
-                letter-spacing: 0.02em; }}
-            .tut-popup-card h4 {{ margin: 0.2em 0 0.6em; font-size: 1.6em; }}
-            .tut-popup-card .btn {{ font-size: 1em; padding: 0.45em 1.6em; }}
-            @media (max-width: 640px) {{ .tut-popup-card {{ width: 94vw; }} }}
             #tut-moves-out {{ font-weight: 400; }}
             #tut-moves-out.done {{ color: #1e7b34; }}
         </style>
@@ -178,6 +163,9 @@ def buying_moves_tutorial() -> ModularPage:
     steps = [
         dict(type="slider", slider="tut-moves", target=target,
              text=f"Move the slider to invest <strong>{target} food</strong>.",
+             # Continue is always there; pressing it with another amount opens this popup.
+             wrong=f"That is not the right investment. Move the slider to invest "
+             f"<strong>{target} food</strong>, then press Continue.",
              hint=f"Drag the slider to {target} food.",
              explanation=f"Each unit of food became {FOOD_CONVERSION} moves."),
     ]

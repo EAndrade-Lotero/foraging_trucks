@@ -164,8 +164,7 @@ def buying_moves_tutorial() -> ModularPage:
         dict(type="slider", slider="tut-moves", target=target,
              text=f"Move the slider to invest <strong>{target} food</strong>.",
              # Continue is always there; pressing it with another amount opens this popup.
-             wrong=f"That is not the right investment. Move the slider to invest "
-             f"<strong>{target} food</strong>, then press Continue.",
+             wrong=f"Move the slider to invest <strong>{target} food</strong>, then press Continue.",
              hint=f"Drag the slider to {target} food.",
              explanation=f"Each unit of food became {FOOD_CONVERSION} moves."),
     ]

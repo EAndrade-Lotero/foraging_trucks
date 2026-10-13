@@ -223,6 +223,7 @@ def contract_tutorial() -> ModularPage:
     No half points, and no ticks under the slider.
     """
     you, partner = 12, 4
+    other_you, other_partner = 8, 15  # second example: your partner collected more
     prompt = Prompt(Markup(f"""
         <h3>Tutorial 3 of 3: sharing the points</h3>
         <p>After each round, a <strong>contract</strong> decides how the points you both collected
@@ -260,12 +261,13 @@ def contract_tutorial() -> ModularPage:
              hint="Drag the slider all the way to the right.",
              explanation="You tried <strong>Wages</strong>: both players get an equal share of all "
              "the points collected. Between the two ends, points are partly shared."),
-        dict(quiz(f"Now <strong>your partner collected {you}</strong> and <strong>you "
-                  f"{partner}</strong>. If the slider were on Wages, what would happen?",
+        # The other case, with different numbers (Andrade, 13-oct): the partner collected more.
+        dict(quiz(f"Now <strong>your partner collected {other_partner}</strong> and <strong>you "
+                  f"{other_you}</strong>. If the slider were on Wages, what would happen?",
                   ["Your partner gives you points", "You give your partner points",
                    "No points move"], 0,
                   "Points move from whoever collected more to whoever collected fewer.",
-                  hint="With Wages both players end up with the same number of points."),
-             example=[partner, you], start=0, reveal=1),
+                  hint="With Wages the two players end up with about the same number of points."),
+             example=[other_you, other_partner], start=0, reveal=1),
     ]
     return tutorial_page("tutorial_contract", prompt, steps)

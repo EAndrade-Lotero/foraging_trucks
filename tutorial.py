@@ -232,7 +232,8 @@ def moving_tutorial() -> ModularPage:
 
 def split_scene(scene_id: str, slider_id: str, you: int, partner: int, contract: float,
                 you_color: str = PLAYER_COLORS[0], partner_color: str = PLAYER_COLORS[1],
-                fixed: bool = False, play_from: float = None, whole: bool = False) -> str:
+                fixed: bool = False, play_from: float = None, whole: bool = False,
+                caption: bool = True) -> str:
     """The split picture (static/split_scene.js): two pac-men and the points each one keeps.
 
     With a slider it follows the slider; with `play_from` it animates from that contract to
@@ -240,7 +241,7 @@ def split_scene(scene_id: str, slider_id: str, you: int, partner: int, contract:
     """
     return f"""
         <div id="{scene_id}" class="scene-box"></div>
-        <div id="{scene_id}-caption" class="split-caption scene-box"></div>
+        <div id="{scene_id}-caption" class="split-caption scene-box"{"" if caption else ' hidden'}></div>
         <script src="/static/split_scene.js"></script>
         <script>
         (function () {{
@@ -272,24 +273,39 @@ def contract_tutorial() -> ModularPage:
     """The contract, shown with points that move between the two players (slides 11-13).
 
     No arithmetic: the participant moves the slider and watches the points change rows.
-    The slider is continuous (0-100% wages), but points only move when the share reaches a
+    Called "group contribution" here (Andrade, 13-oct); 100% is full wages. The slider is
+    continuous (0-100%), but points only move when the share reaches a
     whole point: with a gap of 8 that happens at 25, 50, 75 and 100% (11-5, 10-6, 9-7, 8-8).
     No half points, and no ticks under the slider.
     """
     you, partner = 12, 4
     other_you, other_partner = 8, 15  # second example: your partner collected more
     prompt = Prompt(Markup(f"""
-        <h3>Tutorial 3 of 3: sharing the points</h3>
+        <h3>Tutorial 3 of 3: group contribution</h3>
         <p>After each round, a <strong>contract</strong> decides how the points you both collected
         are shared. Each point keeps the colour of the pac-man who collected it.</p>
-        {split_scene("tut-scene", "tut-contract", you, partner, 0, whole=True)}
+        {split_scene("tut-scene", "tut-contract", you, partner, 0, whole=True, caption=False)}
+        <div class="slider-name">Group contribution: <strong id="tut-contract-pct">0%</strong></div>
         {range_input("tut-contract", 1, 0.01, 0)}
-        {slider_frame("tut-contract", *CONTRACT_ENDS, 0)}
+        <div id="tut-contract-out" class="live-value"></div>
+        {slider_frame("tut-contract", "0%", "100%", 0, below="tut-contract-out")}
         <script>
         // Each step can bring a new example ({{example: [you, partner], start: contract}}) and,
         // for a prediction question, show the answer once it is given ({{reveal: contract}}).
+        (function () {{
+            var slider = document.getElementById("tut-contract");
+            function pct() {{
+                document.getElementById("tut-contract-pct").textContent = Math.round(slider.value * 100) + "%";
+            }}
+            slider.addEventListener("input", pct);
+            window.addEventListener("tutorial-step", function () {{ setTimeout(pct, 0); }});
+            window.addEventListener("tutorial-passed", function () {{ setTimeout(pct, 0); }});
+        }})();
         window.addEventListener("tutorial-step", function (event) {{
             var s = event.detail, slider = document.getElementById("tut-contract");
+            // The instruction under the slider belongs to the step that asks for it.
+            var out = document.getElementById("tut-contract-out");
+            out.innerHTML = s.instruction ? "<em>Instruction: " + s.instruction + "</em>" : "";
             // A prediction is answered before the slider can show it.
             slider.disabled = s.reveal !== undefined;
             if (!s.example) return;
@@ -309,19 +325,25 @@ def contract_tutorial() -> ModularPage:
 
     steps = [
         dict(type="slider", slider="tut-contract", target=1, example=[you, partner], start=0,
-             text=f"<strong>You collected {you} points</strong>, <strong>your partner {partner}</strong>. "
-             "On <strong>Commission</strong> each keeps their own. Drag the slider to "
-             "<strong>Wages</strong> and watch.",
+             bare=True,  # no box: the instruction is in a popup and under the slider
+             text="Set the group contribution slider to 100%.",
+             instruction="Set the group contribution slider to 100%.",
+             popup_title="Group contribution",
+             popup="Set the <strong>group contribution</strong> slider to <strong>100%</strong> "
+             "and watch the points.",
+             wrong="Set the group contribution slider to <strong>100%</strong>, then press Continue.",
+             wrong_title="Not 100% yet",
              hint="Drag the slider all the way to the right.",
-             explanation="You tried <strong>Wages</strong>: both players get an equal share of all "
-             "the points collected. Between the two ends, points are partly shared."),
+             explanation="At 100% group contribution, both players get an equal share of all the "
+             "points collected."),
         # The other case, with different numbers (Andrade, 13-oct): the partner collected more.
         dict(quiz(f"Now <strong>your partner collected {other_partner}</strong> and <strong>you "
-                  f"{other_you}</strong>. If the slider were on Wages, what would happen?",
+                  f"{other_you}</strong>. With 100% group contribution, what would happen?",
                   ["Your partner gives you points", "You give your partner points",
                    "No points move"], 0,
                   "Points move from whoever collected more to whoever collected fewer.",
-                  hint="With Wages the two players end up with about the same number of points."),
+                  hint="With 100% group contribution the two players end up with about the same "
+                  "number of points."),
              example=[other_you, other_partner], start=0, reveal=1),
     ]
     return tutorial_page("tutorial_contract", prompt, steps)

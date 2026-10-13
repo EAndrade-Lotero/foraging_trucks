@@ -272,3 +272,14 @@ body #main-body:has(#wait-page) {
     color: #212529;
     margin-top: 0.3rem;
 }
+
+/* A slider's name and current value above it (tutorial 3: group contribution). */
+.slider-name {
+    margin-top: 1rem;
+    font-size: 1.05rem;
+}
+
+/* Instructions under a tutorial slider: italic, not bold. */
+#tut-contract-out {
+    font-weight: 400;
+}

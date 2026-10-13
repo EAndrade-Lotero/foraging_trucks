@@ -98,9 +98,13 @@
         popup("Try again", title || s.wrong_title || "Not yet", html || s.wrong, true);
     }
 
+    var BARE = {{ (config.bare or false) | tojson }};
+
     function render() {
         var s = STEPS[step];
         passed = false;
+        // A whole page or a single step can drop the box and keep only the Continue button.
+        el("tut-panel").classList.toggle("bare", !!(BARE || s.bare));
         el("tut-progress").textContent = "Step " + (step + 1) + " of " + STEPS.length;
         el("tut-text").innerHTML = s.text;
         el("tut-feedback").innerHTML = "";

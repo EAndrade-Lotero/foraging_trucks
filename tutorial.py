@@ -165,6 +165,7 @@ def buying_moves_tutorial() -> ModularPage:
              text=f"Move the slider to invest <strong>{target} food</strong>.",
              # Continue is always there; pressing it with another amount opens this popup.
              wrong=f"Move the slider to invest <strong>{target} food</strong>, then press Continue.",
+             wrong_title="Incorrect investment",
              hint=f"Drag the slider to {target} food.",
              explanation=f"Each unit of food became {FOOD_CONVERSION} moves."),
     ]
@@ -204,21 +205,28 @@ def moving_tutorial() -> ModularPage:
                    trajectory=[[GRID_SIZE - 2, GRID_SIZE - 5 + k] for k in range(4)], connected=True)
     prompt = PracticeBoardPrompt(
         """<h3>Tutorial 2 of 3: moving in the cave</h3>
-        <p>This is a practice board. Follow the instruction in the yellow box.</p>""",
+        <p>This is a practice board.</p>
+        <p class="tut-instruction"><em>Instruction: collect the point in the centre of the cave.</em></p>""",
         players={"0": me, "1": partner},
         coins=[{"id": 0, "x": centre, "y": centre}],
         moves=moves,
     )
     steps = [
         dict(type="board", check=f"me.x === {centre} && me.y === {centre}",
-             text="You are the pac-man with the <strong>white ring</strong>. There is a point in "
+             text="Collect the point in the centre of the cave.",
+             popup_title="Find the point",
+             popup="You are the pac-man with the <strong>white ring</strong>. There is a point in "
              "the <strong>centre</strong> of the cave: go and collect it. Use the arrow keys "
-             "(&uarr; &darr; &larr; &rarr;, or W A S D).",
+             "(&uarr; &darr; &larr; &rarr;) or W, A, S, D.",
+             wrong="You have not found the point yet. It is in the <strong>centre</strong> of the "
+             "cave.",
+             out_of_moves="You ran out of moves, so this step starts again. The point is in the "
+             "<strong>centre</strong> of the cave.",
              hint="Points only show up in your torchlight. Head for the middle of the board.",
              explanation="Points only show up in your torchlight. Each step uses one move. You "
              "always see your partner and both trails."),
     ]
-    return tutorial_page("tutorial_board", prompt, steps)
+    return tutorial_page("tutorial_board", prompt, steps, bare=True)
 
 
 def split_scene(scene_id: str, slider_id: str, you: int, partner: int, contract: float,

@@ -52,10 +52,11 @@
     <button type="button" id="tut-button" class="btn btn-primary">Check</button>
     <button type="button" id="tut-restart" class="btn btn-outline-secondary" style="display:none">Restart this step</button>
 </div>
+{# One popup for the step instructions and for "not yet" messages. #}
 <div id="tut-wrong" class="tut-popup" role="alertdialog" aria-modal="true" aria-labelledby="tut-wrong-title" hidden>
     <div class="tut-popup-card">
-        <div class="tut-popup-tag bad">Try again</div>
-        <h4 id="tut-wrong-title">Incorrect investment</h4>
+        <div class="tut-popup-tag" id="tut-wrong-tag"></div>
+        <h4 id="tut-wrong-title"></h4>
         <p id="tut-wrong-text" style="margin-bottom:1.1em"></p>
         <button type="button" class="btn btn-primary" id="tut-wrong-ok">OK</button>
     </div>
@@ -70,6 +71,32 @@
     var attempts = {};  // wrong answers per step, for the data
 
     function el(id) { return document.getElementById(id); }
+
+    // Shows the popup. The practice board stays still while it is open.
+    function popup(tag, title, html, bad) {
+        el("tut-wrong-tag").textContent = tag;
+        el("tut-wrong-tag").classList.toggle("bad", !!bad);
+        el("tut-wrong-title").textContent = title;
+        el("tut-wrong-text").innerHTML = html;
+        el("tut-wrong").hidden = false;
+        window.dispatchEvent(new CustomEvent("practice-enable", { detail: false }));
+        el("tut-wrong-ok").focus();
+    }
+
+    function closePopup() {
+        el("tut-wrong").hidden = true;
+        var s = STEPS[step];
+        if (s && s.type === "board" && !passed) {
+            window.dispatchEvent(new CustomEvent("practice-enable", { detail: true }));
+        }
+        el("tut-wrong-ok").blur();
+    }
+
+    function wrong(s, html, title) {
+        mistakes += 1;
+        attempts[step + 1] = (attempts[step + 1] || 0) + 1;
+        popup("Try again", title || s.wrong_title || "Not yet", html || s.wrong, true);
+    }
 
     function render() {
         var s = STEPS[step];
@@ -95,6 +122,8 @@
         window.dispatchEvent(new CustomEvent("practice-target", { detail: s.target_cell || null }));
         // Pages can set up each step (e.g. a new example in the contract tutorial).
         window.dispatchEvent(new CustomEvent("tutorial-step", { detail: s }));
+        // A step can open with its instruction in a popup instead of the box.
+        if (s.popup) popup("Practice", s.popup_title || "", s.popup, false);
     }
 
     function feedback(ok, explanation) {
@@ -139,15 +168,11 @@
         // A slider step only continues while the slider is still on its target; with `wrong`,
         // pressing Continue off target explains what to do in a popup.
         if (s.type === "slider" && Math.abs(parseFloat(el(s.slider).value) - s.target) >= 1e-6) {
-            if (s.wrong) {
-                mistakes += 1;
-                attempts[step + 1] = (attempts[step + 1] || 0) + 1;
-                el("tut-wrong-text").innerHTML = s.wrong;
-                el("tut-wrong").hidden = false;
-                el("tut-wrong-ok").focus();
-            }
+            if (s.wrong) wrong(s);
             if (passed || s.wrong) return;
         }
+        // A board step with `wrong`: Continue before the goal explains what is missing.
+        if (s.type === "board" && s.wrong && !passed) return wrong(s);
         if (s.type === "slider" && s.wrong) return next();
         if (passed || s.type === "info") return next();
         if (s.type === "slider") {
@@ -167,7 +192,13 @@
     window.addEventListener("practice-move", function (event) {
         var s = STEPS[step];
         if (!s || s.type !== "board" || passed) return;
-        if (new Function("me", "return " + s.check)(event.detail)) feedback(true, s.explanation);
+        if (new Function("me", "return " + s.check)(event.detail)) {
+            feedback(true, s.explanation);
+        } else if (s.out_of_moves && event.detail.moves_left <= 0) {
+            // Out of moves before the goal: the step starts again.
+            window.dispatchEvent(new CustomEvent("practice-restore"));
+            wrong(s, s.out_of_moves, "Out of moves");
+        }
     });
 
     // Slider steps pass by themselves when the slider reaches the target, and are no longer
@@ -186,7 +217,7 @@
         }
     });
     el("tut-button").addEventListener("click", check);
-    el("tut-wrong-ok").addEventListener("click", function () { el("tut-wrong").hidden = true; });
+    el("tut-wrong-ok").addEventListener("click", closePopup);
     // Undo the moves of the current board step (e.g. after pressing the wrong arrow).
     el("tut-restart").addEventListener("click", function () {
         window.dispatchEvent(new CustomEvent("practice-restore"));

@@ -332,18 +332,21 @@ def contract_tutorial() -> ModularPage:
              popup="Set the <strong>group contribution</strong> slider to <strong>100%</strong> "
              "and watch the points.",
              wrong="Set the group contribution slider to <strong>100%</strong>, then press Continue.",
-             wrong_title="Not 100% yet",
+             wrong_title="Incorrect contribution percentage",
              hint="Drag the slider all the way to the right.",
              explanation="At 100% group contribution, both players get an equal share of all the "
              "points collected."),
         # The other case, with different numbers (Andrade, 13-oct): the partner collected more.
-        dict(quiz(f"Now <strong>your partner collected {other_partner}</strong> and <strong>you "
-                  f"{other_you}</strong>. With 100% group contribution, what would happen?",
-                  ["Your partner gives you points", "You give your partner points",
-                   "No points move"], 0,
-                  "Points move from whoever collected more to whoever collected fewer.",
-                  hint="With 100% group contribution the two players end up with about the same "
-                  "number of points."),
-             example=[other_you, other_partner], start=0, reveal=1),
+        # The participant moves the slider again, now to 20%.
+        dict(type="slider", slider="tut-contract", target=0.2,
+             example=[other_you, other_partner], start=0, bare=True,
+             text="Set the group contribution slider to 20%.",
+             instruction="Set the group contribution slider to 20%.",
+             popup_title="Group contribution",
+             popup="Set the <strong>group contribution</strong> slider to <strong>20%</strong>.",
+             wrong="Set the group contribution slider to <strong>20%</strong>, then press Continue.",
+             wrong_title="Incorrect contribution percentage",
+             hint="Drag the slider to 20%.",
+             explanation="At 20% group contribution, only a small part of the points is shared."),
     ]
     return tutorial_page("tutorial_contract", prompt, steps)

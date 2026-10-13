@@ -282,8 +282,8 @@ def contract_tutorial() -> ModularPage:
     other_you, other_partner = 8, 15  # second example: your partner collected more
     prompt = Prompt(Markup(f"""
         <h3>Tutorial 3 of 3: group contribution</h3>
-        <p>After each round, a <strong>contract</strong> decides how the points you both collected
-        are shared. Each point keeps the colour of the pac-man who collected it.</p>
+        <p>In this panel, you can set the percentage of your harvest that will go to the
+        <strong>common pool</strong>. The pool is then divided equally between the players.</p>
         {split_scene("tut-scene", "tut-contract", you, partner, 0, whole=True, caption=False)}
         <div class="slider-name">Group contribution: <strong id="tut-contract-pct">0%</strong></div>
         {range_input("tut-contract", 1, 0.01, 0)}
@@ -337,16 +337,16 @@ def contract_tutorial() -> ModularPage:
              explanation="At 100% group contribution, both players get an equal share of all the "
              "points collected."),
         # The other case, with different numbers (Andrade, 13-oct): the partner collected more.
-        # The participant moves the slider again, now to 20%.
-        dict(type="slider", slider="tut-contract", target=0.2,
+        # The participant moves the slider again, now to 35% (one point moves: 9 and 14).
+        dict(type="slider", slider="tut-contract", target=0.35,
              example=[other_you, other_partner], start=0, bare=True,
-             text="Set the group contribution slider to 20%.",
-             instruction="Set the group contribution slider to 20%.",
+             text="Set the group contribution slider to 35%.",
+             instruction="Set the group contribution slider to 35%.",
              popup_title="Group contribution",
-             popup="Set the <strong>group contribution</strong> slider to <strong>20%</strong>.",
-             wrong="Set the group contribution slider to <strong>20%</strong>, then press Continue.",
+             popup="Set the <strong>group contribution</strong> slider to <strong>35%</strong>.",
+             wrong="Set the group contribution slider to <strong>35%</strong>, then press Continue.",
              wrong_title="Incorrect contribution percentage",
-             hint="Drag the slider to 20%.",
-             explanation="At 20% group contribution, only a small part of the points is shared."),
+             hint="Drag the slider to 35%.",
+             explanation="At 35% group contribution, part of the points is shared."),
     ]
     return tutorial_page("tutorial_contract", prompt, steps)

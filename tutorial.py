@@ -52,19 +52,30 @@ def quiz(question: str, options: list, correct: int, explanation: str, hint: str
                 correct=correct, explanation=explanation, hint=hint)
 
 
-def slider_frame(slider_id: str, left: str, right: str, n_steps: int, below: str = "") -> str:
+def slider_frame(slider_id: str, left: str, right: str, n_steps: int, below: str = "",
+                 values: list = None) -> str:
     """Ticks and end labels under a slider; optionally move a live value (`below`) under them.
 
     Shared by the game pages and the tutorials so every slider looks the same. PsyNet renders
     its slider after the prompt, so the frame is moved next to the slider once it exists.
+    With `values`, each tick gets its value under it (the current one highlighted) instead of
+    the end labels.
     """
     ticks = "".join(  # n_steps=0: no ticks, only the end labels
         f'<span style="left:{100 * i / (n_steps - 1):.4f}%"></span>' for i in range(n_steps)
     ) if n_steps > 1 else ""
+    if values:
+        labels = "".join(
+            f'<span data-v="{v}" style="left:{100 * i / (len(values) - 1):.4f}%">{v}</span>'
+            for i, v in enumerate(values)
+        )
+        under = f'<div class="slider-values">{labels}</div>'
+    else:
+        under = f'<div class="slider-ends"><span>{left}</span><span>{right}</span></div>'
     return f"""
         <div id="{slider_id}-frame">
             <div class="slider-ticks">{ticks}</div>
-            <div class="slider-ends"><span>{left}</span><span>{right}</span></div>
+            {under}
         </div>
         <script>
         (function () {{
@@ -75,6 +86,16 @@ def slider_frame(slider_id: str, left: str, right: str, n_steps: int, below: str
                 slider.after(frame);
                 var below = document.getElementById("{below}");
                 if (below) frame.after(below);
+                if (!slider.dataset.values) {{
+                    slider.dataset.values = "1";
+                    var mark = function () {{
+                        frame.querySelectorAll(".slider-values span").forEach(function (label) {{
+                            label.classList.toggle("active", label.dataset.v === slider.value);
+                        }});
+                    }};
+                    slider.addEventListener("input", mark);
+                    mark();
+                }}
             }}
             place();
             if (window.psynet && psynet.trial) psynet.trial.onEvent("trialConstruct", place);
@@ -100,7 +121,7 @@ def buying_moves_tutorial() -> ModularPage:
         <script src="/static/convert_scene.js"></script>
         {range_input("tut-moves", bank, 1, 2)}
         <div id="tut-moves-out" class="live-value"></div>
-        {slider_frame("tut-moves", "0 food", f"{bank} food", bank + 1, below="tut-moves-out")}
+        {slider_frame("tut-moves", "", "", bank + 1, below="tut-moves-out", values=list(range(bank + 1)))}
 
         <div id="tut-popup" class="tut-popup" role="dialog" aria-modal="true" aria-labelledby="tut-popup-title">
             <div class="tut-popup-card">

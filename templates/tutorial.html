@@ -90,7 +90,7 @@
             var button = el("tut-button");
             button.textContent = "Continue";
             if (STEPS[step].type === "slider") {
-                setTimeout(function () { button.style.display = ""; }, 900);
+                setTimeout(function () { if (passed) button.style.display = ""; }, 900);
             } else {
                 button.style.display = "";
             }
@@ -112,6 +112,9 @@
 
     function check() {
         var s = STEPS[step];
+        // A slider step only continues while the slider is still on its target.
+        if (passed && s.type === "slider"
+            && Math.abs(parseFloat(el(s.slider).value) - s.target) >= 1e-6) return;
         if (passed || s.type === "info") return next();
         if (s.type === "slider") {
             var value = parseFloat(el(s.slider).value);
@@ -133,11 +136,20 @@
         if (new Function("me", "return " + s.check)(event.detail)) feedback(true, s.explanation);
     });
 
-    // Slider steps also pass by themselves as soon as the slider reaches the target.
+    // Slider steps pass by themselves when the slider reaches the target, and are no longer
+    // passed (Continue hides again) if it leaves the target.
     document.addEventListener("input", function (event) {
         var s = STEPS[step];
-        if (!s || s.type !== "slider" || passed || event.target.id !== s.slider) return;
-        if (Math.abs(parseFloat(event.target.value) - s.target) < 1e-6) feedback(true, s.explanation);
+        if (!s || s.type !== "slider" || event.target.id !== s.slider) return;
+        var onTarget = Math.abs(parseFloat(event.target.value) - s.target) < 1e-6;
+        if (onTarget && !passed) {
+            feedback(true, s.explanation);
+        } else if (!onTarget && passed) {
+            passed = false;
+            el("tut-button").style.display = "none";
+            el("tut-feedback").innerHTML = "";
+            el("tut-feedback").className = "";
+        }
     });
     el("tut-button").addEventListener("click", check);
     // Undo the moves of the current board step (e.g. after pressing the wrong arrow).

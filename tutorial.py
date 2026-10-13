@@ -217,17 +217,17 @@ def contract_tutorial() -> ModularPage:
     """The contract, shown with points that move between the two players (slides 11-13).
 
     No arithmetic: the participant moves the slider and watches the points change rows.
-    The example has a gap of 8 points so that commission, the middle and wages give 12-4,
-    10-6 and 8-8, as on the slides.
+    The example has a gap of 8 points and the slider stops at 0, 25, 50, 75 and 100% wages, so
+    every position moves whole points: 12-4, 11-5, 10-6, 9-7 and 8-8 (no half points).
     """
     you, partner = 12, 4
     prompt = Prompt(Markup(f"""
         <h3>Tutorial 3 of 3: sharing the points</h3>
         <p>After each round, a <strong>contract</strong> decides how the points you both collected
         are shared. Each point keeps the colour of the pac-man who collected it.</p>
-        {split_scene("tut-scene", "tut-contract", you, partner, 0.3)}
-        {range_input("tut-contract", 1, 0.1, 0.3)}
-        {slider_frame("tut-contract", *CONTRACT_ENDS, 11)}
+        {split_scene("tut-scene", "tut-contract", you, partner, 0)}
+        {range_input("tut-contract", 1, 0.25, 0)}
+        {slider_frame("tut-contract", *CONTRACT_ENDS, 5)}
         <script>
         // Each step can bring a new example ({{example: [you, partner], start: contract}}) and,
         // for a prediction question, show the answer once it is given ({{reveal: contract}}).

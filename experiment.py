@@ -33,7 +33,7 @@ from .game_parameters import (
     MAX_MOVES,
     MOVE_STEP,
     N_ROUNDS,
-    POINT_MOVES,
+    FOOD_CONVERSION,
     SOLO_FOOD_FACTOR,
     SOLO_MAX_ROUNDS,
     START_MOVES,
@@ -51,7 +51,7 @@ from .tutorial import (
 GROUP_TYPE = "crew"
 
 # Economy (game_parameters.py): everything is counted in moves. Players invest moves from their
-# bank, collect points (each worth POINT_MOVES moves), the contract shares the points, and food
+# bank, collect points (each worth FOOD_CONVERSION moves), the contract shares the points, and food
 # is paid. A player whose bank reaches zero is out; their partner plays on alone.
 START_CONTRACT = 0.0  # 0 = commission (keep your points), 1 = wages (equal split)
 
@@ -103,18 +103,18 @@ def transfer(contract: float, own: int, partner: int) -> int:
     `own` and `partner` are the points each one collected. Commission keeps (1 - contract) of
     your own; wages pool the rest of both and split the pot equally. Together that is one
     transfer of contract * (own - partner) / 2 points, rounded to the nearest half point (half
-    away from zero) and paid in moves (POINT_MOVES per point, an even number). So full wages are
+    away from zero) and paid in moves (FOOD_CONVERSION per point, an even number). So full wages are
     always exactly equal, and static/split_scene.js, which draws half points, shows exactly
     what is paid.
     """
     halves = contract * (own - partner)
     whole = int(abs(halves) + 0.5 + 1e-9)
-    return (whole if halves >= 0 else -whole) * POINT_MOVES // 2
+    return (whole if halves >= 0 else -whole) * FOOD_CONVERSION // 2
 
 
 def split(contract: float, own: int, partner: int) -> int:
     """Moves the first player gets from the points both collected."""
-    return own * POINT_MOVES - transfer(contract, own, partner)
+    return own * FOOD_CONVERSION - transfer(contract, own, partner)
 
 
 def signed(n: int) -> str:
@@ -242,7 +242,7 @@ def score_round(group, participants, participant, barrier):
         others = [q for q in players if q.id != p.id]
         own = collected[p.id]
         other = collected[others[0].id] if others else 0
-        gained = own * POINT_MOVES if solo else split(contract, own, other)
+        gained = own * FOOD_CONVERSION if solo else split(contract, own, other)
         food = FOOD_MOVES * (SOLO_FOOD_FACTOR if solo else 1)
         invested = p.var.get("invested", None)
         if invested is None:
@@ -395,7 +395,7 @@ def buy_moves_page(participant: Participant, round_index: int) -> ModularPage:
         <h3>Round {round_index + 1} of {N_ROUNDS}: invest moves</h3>
         <p>You have <strong>{have} moves</strong> in your bank. <strong>How many do you want to
         invest in this round?</strong> They are the steps your pac-man can take. After the round,
-        the points are shared with the contract and turned into moves ({POINT_MOVES} per point).</p>
+        the points are shared with the contract and turned into moves ({FOOD_CONVERSION} per point).</p>
         <p>{situation}</p>
         {preview}
         {slider_frame("moves-slider", "0 moves", f"{top} moves", n_stops, below="moves-output")}

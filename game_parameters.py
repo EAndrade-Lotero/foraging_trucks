@@ -2,7 +2,8 @@
 
 Economy (provisional, meeting of 6-oct): everything is counted in moves. Players keep a bank of
 moves, invest part of it in each round (the steps their pac-man can take), and every point they
-collect is worth POINT_MOVES moves. The contract shares the points, then food is paid.
+collect is food that converts into FOOD_CONVERSION moves. The contract shares the points, then
+food is paid.
 The numbers come from a simulation of greedy players with the 3x3 fog on the 16x16 maps
 (about 23 points per map): with these values someone runs out of moves in roughly 70% of the
 games under commission and 30% under wages, and a player left alone usually dies within a
@@ -15,7 +16,9 @@ INCLUDE_TUTORIAL = True
 START_MOVES = 40  # bank at the start of the game
 MAX_MOVES = 60  # most moves a player can invest in one round (option b, 12-oct)
 MOVE_STEP = 5  # the invest slider moves in steps of 5 moves
-POINT_MOVES = 6  # moves earned per point collected (even: half a point is a whole number of moves)
+# Food -> moves: each point (food) collected converts into this many moves. Keep it even, so
+# half a point (the contract shares in halves) is a whole number of moves.
+FOOD_CONVERSION = 6
 FOOD_MOVES = 8  # moves paid for food every round
 
 N_ROUNDS = 10

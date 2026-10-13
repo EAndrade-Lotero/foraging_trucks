@@ -10,12 +10,13 @@ from psynet.modular_page import ModularPage, NullControl, Prompt
 from .foraging import (
     EnableForaging,
     FORAGING_DURATION,
+    GRID_SIZE,
     PLAYER_COLORS,
     VARIANT,
     VIEW_RADIUS,
 )
 from .game_parameters import (
-    POINT_MOVES,
+    FOOD_CONVERSION,
 )
 
 TUTORIAL_SECONDS = 60
@@ -92,7 +93,7 @@ def buying_moves_tutorial() -> ModularPage:
     prompt = Prompt(Markup(f"""
         <h3>Tutorial 1 of 3: points and moves</h3>
         <p>Your <strong>bank</strong> keeps the points you collect: they are your food. Each round
-        you choose how many to invest, and <strong>each point becomes {POINT_MOVES} moves</strong>,
+        you choose how many to invest, and <strong>each point becomes {FOOD_CONVERSION} moves</strong>,
         the steps your pac-man can take. Try the slider.</p>
         <div id="tut-convert"></div>
         <script src="/static/convert_scene.js"></script>
@@ -103,12 +104,12 @@ def buying_moves_tutorial() -> ModularPage:
         (function () {{
             var slider = document.getElementById("tut-moves");
             var convert = ConvertScene(document.getElementById("tut-convert"),
-                                       {{bank: {bank}, perPoint: {POINT_MOVES}}});
+                                       {{bank: {bank}, perPoint: {FOOD_CONVERSION}}});
             function show(animate) {{
                 var v = parseInt(slider.value, 10);
                 convert.set(v, animate);
                 document.getElementById("tut-moves-out").innerHTML = "You invest <strong>" + v
-                    + (v === 1 ? " point" : " points") + "</strong>: " + v * {POINT_MOVES}
+                    + (v === 1 ? " point" : " points") + "</strong>: " + v * {FOOD_CONVERSION}
                     + " moves this round; " + ({bank} - v) + " stay in your bank";
             }}
             slider.addEventListener("input", function () {{ show(true); }});
@@ -140,7 +141,7 @@ class PracticeBoardPrompt(Prompt):
         self.coins = coins
         self.moves = moves
         self.terrain = "practice"
-        self.grid_size = 10
+        self.grid_size = GRID_SIZE
         self.timer_seconds = FORAGING_DURATION
         self.channel = EnableForaging.channel
         self.style = VARIANT
@@ -148,30 +149,29 @@ class PracticeBoardPrompt(Prompt):
 
 
 def moving_tutorial() -> ModularPage:
-    """Andrade, 6-oct: "move to the X", then "find the point", with the fog front and centre."""
-    moves = 40  # plenty: a wrong turn should never leave the tutorial unsolvable
-    me = dict(x=2, y=2, color=PLAYER_COLORS[0], coins=0, moves_left=moves,
-              trajectory=[[2, 2]], connected=True)
-    partner = dict(x=8, y=8, color=PLAYER_COLORS[1], coins=0, moves_left=0,
-                   trajectory=[[8, 5], [8, 6], [8, 7], [8, 8]], connected=True)
+    """Andrade, 13-oct: the real 16x16 board in the dark, 80 moves, one point in the centre.
+    Collecting it ends the tutorial."""
+    moves = 80
+    centre = GRID_SIZE // 2
+    me = dict(x=1, y=1, color=PLAYER_COLORS[0], coins=0, moves_left=moves,
+              trajectory=[[1, 1]], connected=True)
+    partner = dict(x=GRID_SIZE - 2, y=GRID_SIZE - 2, color=PLAYER_COLORS[1], coins=0, moves_left=0,
+                   trajectory=[[GRID_SIZE - 2, GRID_SIZE - 5 + k] for k in range(4)], connected=True)
     prompt = PracticeBoardPrompt(
         """<h3>Tutorial 2 of 3: moving in the cave</h3>
         <p>This is a practice board. Follow the yellow box on the right.</p>""",
         players={"0": me, "1": partner},
-        coins=[{"id": 0, "x": 4, "y": 7}],
+        coins=[{"id": 0, "x": centre, "y": centre}],
         moves=moves,
     )
     steps = [
-        dict(type="board", check="me.x === 2 && me.y === 6", target_cell=[2, 6],
-             text="You are the pac-man with the <strong>white ring</strong>. Use the arrow keys "
-             "(&uarr; &darr; &larr; &rarr;, or W A S D) to walk to the <strong>orange X</strong>.",
-             hint="If you went the wrong way, click Restart this step.",
-             explanation="Each step uses one move. Your torch goes with you."),
-        dict(type="board", check="me.x === 4 && me.y === 7",
-             text="A point is hidden <strong>near the X</strong>. Find it and step on it.",
-             hint="Try the squares next to you: points only appear when they are lit.",
-             explanation="Points only show up in your torchlight. You always see your partner "
-             "and both trails."),
+        dict(type="board", check=f"me.x === {centre} && me.y === {centre}",
+             text="You are the pac-man with the <strong>white ring</strong>. There is a point in "
+             "the <strong>centre</strong> of the cave: go and collect it. Use the arrow keys "
+             "(&uarr; &darr; &larr; &rarr;, or W A S D).",
+             hint="Points only show up in your torchlight. Head for the middle of the board.",
+             explanation="Points only show up in your torchlight. Each step uses one move. You "
+             "always see your partner and both trails."),
     ]
     return tutorial_page("tutorial_board", prompt, steps)
 

@@ -57,9 +57,9 @@ def slider_frame(slider_id: str, left: str, right: str, n_steps: int, below: str
     Shared by the game pages and the tutorials so every slider looks the same. PsyNet renders
     its slider after the prompt, so the frame is moved next to the slider once it exists.
     """
-    ticks = "".join(
+    ticks = "".join(  # n_steps=0: no ticks, only the end labels
         f'<span style="left:{100 * i / (n_steps - 1):.4f}%"></span>' for i in range(n_steps)
-    )
+    ) if n_steps > 1 else ""
     return f"""
         <div id="{slider_id}-frame">
             <div class="slider-ticks">{ticks}</div>
@@ -178,7 +178,7 @@ def moving_tutorial() -> ModularPage:
 
 def split_scene(scene_id: str, slider_id: str, you: int, partner: int, contract: float,
                 you_color: str = PLAYER_COLORS[0], partner_color: str = PLAYER_COLORS[1],
-                fixed: bool = False, play_from: float = None) -> str:
+                fixed: bool = False, play_from: float = None, whole: bool = False) -> str:
     """The split picture (static/split_scene.js): two pac-men and the points each one keeps.
 
     With a slider it follows the slider; with `play_from` it animates from that contract to
@@ -193,6 +193,7 @@ def split_scene(scene_id: str, slider_id: str, you: int, partner: int, contract:
             var caption = document.getElementById("{scene_id}-caption");
             var scene = SplitScene(document.getElementById("{scene_id}"), {{
                 you: {you}, partner: {partner}, contract: {contract if play_from is None else play_from},
+                whole: {"true" if whole else "false"},
                 youColor: "{you_color}", partnerColor: "{partner_color}",
                 onChange: function (info) {{ caption.innerHTML = SplitScene.caption(info); }},
             }});
@@ -217,17 +218,18 @@ def contract_tutorial() -> ModularPage:
     """The contract, shown with points that move between the two players (slides 11-13).
 
     No arithmetic: the participant moves the slider and watches the points change rows.
-    The example has a gap of 8 points and the slider stops at 0, 25, 50, 75 and 100% wages, so
-    every position moves whole points: 12-4, 11-5, 10-6, 9-7 and 8-8 (no half points).
+    The slider is continuous (0-100% wages), but points only move when the share reaches a
+    whole point: with a gap of 8 that happens at 25, 50, 75 and 100% (11-5, 10-6, 9-7, 8-8).
+    No half points, and no ticks under the slider.
     """
     you, partner = 12, 4
     prompt = Prompt(Markup(f"""
         <h3>Tutorial 3 of 3: sharing the points</h3>
         <p>After each round, a <strong>contract</strong> decides how the points you both collected
         are shared. Each point keeps the colour of the pac-man who collected it.</p>
-        {split_scene("tut-scene", "tut-contract", you, partner, 0)}
-        {range_input("tut-contract", 1, 0.25, 0)}
-        {slider_frame("tut-contract", *CONTRACT_ENDS, 5)}
+        {split_scene("tut-scene", "tut-contract", you, partner, 0, whole=True)}
+        {range_input("tut-contract", 1, 0.01, 0)}
+        {slider_frame("tut-contract", *CONTRACT_ENDS, 0)}
         <script>
         // Each step can bring a new example ({{example: [you, partner], start: contract}}) and,
         // for a prediction question, show the answer once it is given ({{reveal: contract}}).

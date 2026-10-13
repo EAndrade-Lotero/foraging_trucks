@@ -140,6 +140,11 @@
         function set(w, animate) {
             contract = Math.max(0, Math.min(1, Number(w) || 0));
             var t = transfer(contract, have.you, have.partner);
+            // Tutorial: points move only when the share reaches a whole point.
+            if (opts.whole) {
+                var exact = contract * (have.you - have.partner) / 2;
+                t = Math.floor(Math.abs(exact) + 1e-9) * (exact >= 0 ? 1 : -1);
+            }
             var giver = t >= 0 ? "you" : "partner", taker = giver === "you" ? "partner" : "you";
             var whole = Math.floor(Math.abs(t)), half = Math.abs(t) - whole > 0.25;
             var own = dots.filter(function (d) { return d.owner === giver; });
@@ -189,7 +194,7 @@
                 }
             });
             if (opts.onChange) opts.onChange({contract: contract, transfer: t,
-                you: counts.you, partner: counts.partner});
+                you: counts.you, partner: counts.partner, gap: have.you - have.partner});
             return rows;
         }
 
@@ -208,6 +213,7 @@
     SplitScene.caption = function (info) {
         var w = Math.round(info.contract * 100), n = Math.abs(info.transfer);
         var head = "<strong>" + (100 - w) + "% commission · " + w + "% wages</strong>";
+        if (!n && w > 0 && info.gap) return head + ": no whole point moves yet";
         if (!n) return head + ": everyone keeps what they collected";
         return head + ": " + (info.transfer > 0 ? "you give " : "your partner gives ") + amount(n)
             + (n <= 1 ? " point" : " points") + (info.transfer > 0 ? " to your partner" : " to you");

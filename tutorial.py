@@ -90,27 +90,65 @@ def buying_moves_tutorial() -> ModularPage:
     """Investing (critiques of 12-oct): bank vs. this round's steps, unused moves are spent,
     and running out ends your game while your partner plays on. No arithmetic."""
     bank = 6  # practice bank, in points (Andrade's sketch: food -> moves)
+    target = 5  # the participant must invest exactly this many points to continue
     prompt = Prompt(Markup(f"""
         <h3>Tutorial 1 of 3: points and moves</h3>
         <p>Your <strong>bank</strong> keeps the points you collect: they are your food. Each round
         you choose how many to invest, and <strong>each point becomes {FOOD_CONVERSION} moves</strong>,
-        the steps your pac-man can take. Try the slider.</p>
+        the steps your pac-man can take.</p>
         <div id="tut-convert"></div>
         <script src="/static/convert_scene.js"></script>
         {range_input("tut-moves", bank, 1, 2)}
         <div id="tut-moves-out" class="live-value"></div>
         {slider_frame("tut-moves", "0 points", f"{bank} points", bank + 1, below="tut-moves-out")}
+
+        <div id="tut-popup" class="tut-popup" role="dialog" aria-modal="true" aria-labelledby="tut-popup-title">
+            <div class="tut-popup-card">
+                <div class="tut-popup-tag">Practice</div>
+                <h4 id="tut-popup-title">Invest {target} points</h4>
+                <p>Move the slider to invest <strong>{target} points</strong> and watch them turn
+                into moves.</p>
+                <ul>
+                    <li>Moves you don't use are spent anyway.</li>
+                    <li>After each round your share of the points goes to your bank, and you pay some
+                    for food. The game counts for you.</li>
+                    <li>If your bank runs out, you leave the game and your partner goes on alone.</li>
+                    <li>Nothing here changes your real bank.</li>
+                </ul>
+                <button type="button" class="btn btn-primary" id="tut-popup-ok">OK</button>
+            </div>
+        </div>
+        <style>
+            .tut-popup {{ position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center;
+                justify-content: center; background: rgba(0, 0, 0, 0.55); padding: 16px; }}
+            .tut-popup[hidden] {{ display: none; }}
+            .tut-popup-card {{ background: #fffbea; border: 1px solid #e8c766; border-radius: 12px;
+                max-width: 460px; padding: 1.3rem 1.4rem; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+                line-height: 1.5; }}
+            .tut-popup-tag {{ font-size: 0.8rem; color: #8a6d00; font-weight: 600; text-transform: uppercase;
+                letter-spacing: 0.02em; }}
+            .tut-popup-card h4 {{ margin: 0.2rem 0 0.6rem; }}
+            .tut-popup-card ul {{ padding-left: 1.1rem; margin: 0.6rem 0 1rem; color: #444; }}
+            #tut-moves-out.done {{ color: #1e7b34; }}
+        </style>
         <script>
         (function () {{
+            var popup = document.getElementById("tut-popup");
+            document.getElementById("tut-popup-ok").addEventListener("click", function () {{
+                popup.hidden = true;
+                document.getElementById("tut-moves").focus();
+            }});
             var slider = document.getElementById("tut-moves");
             var convert = ConvertScene(document.getElementById("tut-convert"),
                                        {{bank: {bank}, perPoint: {FOOD_CONVERSION}}});
+            var out = document.getElementById("tut-moves-out");
             function show(animate) {{
                 var v = parseInt(slider.value, 10);
                 convert.set(v, animate);
-                document.getElementById("tut-moves-out").innerHTML = "You invest <strong>" + v
-                    + (v === 1 ? " point" : " points") + "</strong>: " + v * {FOOD_CONVERSION}
-                    + " moves this round; " + ({bank} - v) + " stay in your bank";
+                // The instruction again, under the slider; a tick once it is done.
+                var done = v === {target};
+                out.classList.toggle("done", done);
+                out.innerHTML = (done ? "&#10003; " : "") + "Invest <strong>{target} points</strong>";
             }}
             slider.addEventListener("input", function () {{ show(true); }});
             show(false);
@@ -118,10 +156,10 @@ def buying_moves_tutorial() -> ModularPage:
         </script>
     """))
     steps = [
-        dict(type="info", text="Practice only: nothing here changes your bank.<br>"
-             "Moves you don't use are spent anyway. After each round your share of the points "
-             "goes to your bank, and you pay some for food. The game counts for you.<br>"
-             "If your bank runs out, you leave the game and your partner goes on alone."),
+        dict(type="slider", slider="tut-moves", target=target,
+             text=f"Move the slider to invest <strong>{target} points</strong>.",
+             hint=f"Drag the slider to {target} points.",
+             explanation=f"Each point became {FOOD_CONVERSION} moves for this round."),
     ]
     return tutorial_page("tutorial_moves", prompt, steps)
 

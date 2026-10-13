@@ -209,22 +209,22 @@ def moving_tutorial() -> ModularPage:
         players={"0": me, "1": partner},
         coins=[{"id": 0, "x": centre, "y": centre}],
         moves=moves,
-        legend='<div class="board-instruction"><em>Instruction: collect the point in the '
+        legend='<div class="board-instruction"><em>Instruction: collect the food in the '
                'centre of the cave.</em></div>',
     )
     steps = [
         dict(type="board", check=f"me.x === {centre} && me.y === {centre}",
-             text="Collect the point in the centre of the cave.",
-             popup_title="Find the point",
-             popup="You are the pac-man with the <strong>white ring</strong>. There is a point in "
+             text="Collect the food in the centre of the cave.",
+             popup_title="Find the food",
+             popup="You are the pac-man with the <strong>white ring</strong>. There is food in "
              "the <strong>centre</strong> of the cave: go and collect it. Use the arrow keys "
              "(&uarr; &darr; &larr; &rarr;) or W, A, S, D.",
-             wrong="You have not found the point yet. It is in the <strong>centre</strong> of the "
-             "cave.",
-             out_of_moves="You ran out of moves, so this step starts again. The point is in the "
+             wrong_title="You've not found the food",
+             wrong="It is in the <strong>centre</strong> of the cave.",
+             out_of_moves="You ran out of moves, so this step starts again. The food is in the "
              "<strong>centre</strong> of the cave.",
-             hint="Points only show up in your torchlight. Head for the middle of the board.",
-             explanation="Points only show up in your torchlight. Each step uses one move. You "
+             hint="Food only shows up in your torchlight. Head for the middle of the board.",
+             explanation="Food only shows up in your torchlight. Each step uses one move. You "
              "always see your partner and both trails."),
     ]
     return tutorial_page("tutorial_board", prompt, steps, bare=True)

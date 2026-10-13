@@ -250,5 +250,16 @@
         );
     }
 
-    window.CaveView = { build: build, pacman: pacman, point: point };
+    // The same gem as inline SVG, for the food bank next to the board.
+    function gemSVG() {
+        var rects = "";
+        GEM.forEach(function (row, y) {
+            row.split("").forEach(function (c, x) {
+                if (PALETTE[c]) rects += '<rect x="' + x + '" y="' + y + '" width="1.02" height="1.02" fill="' + PALETTE[c] + '"/>';
+            });
+        });
+        return '<svg viewBox="0 0 10 10" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg">' + rects + "</svg>";
+    }
+
+    window.CaveView = { build: build, pacman: pacman, point: point, gemSVG: gemSVG };
 })();

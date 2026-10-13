@@ -16,12 +16,12 @@
         display: block;
     }
 
-    /* One status row as wide as the board: coins, moves, time. */
+    /* One status row as wide as the board: moves and time (the food is in the bank column). */
     #foraging-hud {
         width: var(--board-size, 504px);
         max-width: 100%;
         display: grid;
-        grid-template-columns: max-content 1fr max-content;
+        grid-template-columns: 1fr max-content;
         gap: 1rem;
         align-items: center;
         font-size: 1rem;
@@ -41,8 +41,56 @@
 
     #foraging-board-wrap {
         position: relative;
-        display: inline-block;
+        display: flex;
+        align-items: stretch;
+        gap: 10px;
     }
+
+    /* Food bank: a column next to the board where every piece of food collected piles up
+       from the bottom (Andrade's sketch, 13-oct). */
+    #foraging-bank {
+        width: var(--bank-width, 56px);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        background: #1b1b1b;
+        border: 2px solid #1a1a2e;
+        border-radius: 6px;
+        padding: 6px 4px;
+        color: #fff;
+    }
+
+    #foraging-bank .bank-count {
+        font-weight: 700;
+        font-size: 1.15rem;
+        line-height: 1;
+        font-variant-numeric: tabular-nums;
+    }
+
+    #foraging-bank .bank-unit {
+        font-size: 0.7rem;
+        color: #bbb;
+        margin-bottom: 6px;
+    }
+
+    #foraging-bank .bank-gems {
+        flex: 1;
+        width: 100%;
+        display: flex;
+        flex-direction: column-reverse;
+        flex-wrap: wrap-reverse;
+        align-content: center;
+        gap: 2px;
+        overflow: hidden;
+    }
+
+    #foraging-bank .bank-gems > div {
+        width: var(--gem-size, 20px);
+        height: var(--gem-size, 20px);
+        animation: bank-in 0.35s cubic-bezier(.3,1.6,.5,1);
+    }
+
+    @keyframes bank-in { from { transform: scale(0); } to { transform: scale(1); } }
 
     #foraging-legend {
         width: var(--board-size, 504px);
@@ -53,7 +101,7 @@
     }
 
     #foraging-moves {
-        justify-self: center;
+        justify-self: start;
         display: flex;
         align-items: center;
         gap: 0.5rem;
@@ -86,7 +134,6 @@
 {% if config.text %}<div>{{ config.text }}</div>{% endif %}
 <div id="foraging-container">
     <div id="foraging-hud">
-        <div><span class="hud-label">Points</span><span id="foraging-score" class="hud-value">0</span></div>
         <div id="foraging-moves">
             <span class="hud-label">Moves</span>
             <div id="foraging-moves-bar"><div id="foraging-moves-fill"></div></div>
@@ -96,11 +143,16 @@
     </div>
     <div id="foraging-board-wrap">
         <canvas id="foraging-canvas" width="500" height="500"></canvas>
+        <div id="foraging-bank" aria-label="Food collected">
+            <div class="bank-count" id="foraging-score">0</div>
+            <div class="bank-unit">food</div>
+            <div class="bank-gems"></div>
+        </div>
     </div>
     <div id="foraging-legend">
         {% if config.legend %}{{ config.legend }}{% else %}
         Move with the arrow keys or WASD. The pac-man with the <strong>white ring</strong> is you.
-        Your torch lights the squares next to you, and you only see points there. Coloured squares show where each of you has been.
+        Your torch lights the squares next to you, and you only see food there. Coloured squares show where each of you has been.
         {% endif %}
     </div>
 </div>
@@ -309,7 +361,8 @@
         if (!renderer) return;
         var container = document.getElementById("foraging-container");
         var canvas = document.getElementById("foraging-canvas");
-        var available = container ? container.clientWidth - 4 : 500;
+        var bank = document.getElementById("foraging-bank");
+        var available = container ? container.clientWidth - 4 - (bank ? bank.offsetWidth + 10 : 0) : 500;
         var top = canvas.getBoundingClientRect().top + window.scrollY;
         var footer = document.getElementById("footer");
         // Leave room for the line under the board and, in the tutorial, its Continue button.
@@ -320,6 +373,8 @@
         var size = Math.round(Math.max(260, Math.min(available, window.innerHeight - top - below)));
         renderer.setSize(size, size);
         if (container) container.style.setProperty("--board-size", (size + 4) + "px");
+        // About 20 gems fit in the column before it starts a second one.
+        if (container) container.style.setProperty("--gem-size", Math.max(14, Math.floor((size - 60) / 20)) + "px");
     }
     window.addEventListener("resize", fitBoard);
     window.addEventListener("load", fitBoard);
@@ -463,6 +518,18 @@
         });
     }
 
+    // The food bank column: one gem per piece of food collected, new ones pop in.
+    function fillBank(n) {
+        var gems = document.querySelector("#foraging-bank .bank-gems");
+        if (!gems || typeof CaveView === "undefined") return;
+        while (gems.children.length < n) {
+            var gem = document.createElement("div");
+            gem.innerHTML = CaveView.gemSVG();
+            gems.appendChild(gem);
+        }
+        while (gems.children.length > n) gems.removeChild(gems.lastChild);
+    }
+
     function movesLeft() {
         var me = (localState.players || {})[MY_ID];
         return me && me.moves_left !== undefined ? me.moves_left : START_MOVES;
@@ -487,6 +554,7 @@
         if (scoreEl) {
             scoreEl.textContent = coins;
         }
+        fillBank(coins);
         var left = movesLeft();
         var fill = document.getElementById("foraging-moves-fill");
         if (fill) {
@@ -823,6 +891,10 @@
         initThree();
         if (PRACTICE) {
             localState.coins = PRACTICE_COINS;
+            // The tutorial may have saved its restart point before the food was on the board.
+            if (practiceCheckpoint !== null) {
+                practiceCheckpoint = JSON.stringify({ players: localState.players, coins: localState.coins });
+            }
             syncMeshes();
             updateScore();
         } else {

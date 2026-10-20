@@ -221,9 +221,12 @@
     // red-green colour blindness (blue against tan).
     var PALETTE = { O: "#0d1036", L: "#8fb4ff", W: "#ffffff", B: "#2a50f0", D: "#17289a" };
     var gemTexture = null;
-    function pointTexture() {
-        if (gemTexture) return gemTexture;
-        var palette = PALETTE;
+    // Used food (already eaten): the same gem in greys, so it reads as "used", not as food.
+    var USED_PALETTE = { O: "#2b2b2b", L: "#d8d8d8", W: "#f2f2f2", B: "#8e8e8e", D: "#5c5c5c" };
+    var usedTexture = null;
+    function pointTexture(used) {
+        if (used ? usedTexture : gemTexture) return used ? usedTexture : gemTexture;
+        var palette = used ? USED_PALETTE : PALETTE;
         var canvas = document.createElement("canvas");
         canvas.width = canvas.height = GEM.length;
         var ctx = canvas.getContext("2d");
@@ -239,14 +242,14 @@
         texture.minFilter = THREE.NearestFilter;
         texture.generateMipmaps = false;
         if ("colorSpace" in texture) texture.colorSpace = THREE.SRGBColorSpace;
-        gemTexture = texture;
+        if (used) usedTexture = texture; else gemTexture = texture;
         return texture;
     }
 
-    function point() {
+    function point(used) {
         return new THREE.Mesh(
             new THREE.PlaneGeometry(0.5, 0.5),
-            new THREE.MeshBasicMaterial({ map: pointTexture(), transparent: true })
+            new THREE.MeshBasicMaterial({ map: pointTexture(used), transparent: true })
         );
     }
 

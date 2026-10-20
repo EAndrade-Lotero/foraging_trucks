@@ -191,6 +191,11 @@
     };
     var renderer, scene, camera, boardGroup, entityMeshes = {};
     var cave = null, caveClock = null;  // torch-lit cave floor (static/cave.js)
+    // Eaten food stays on its square as a used item: a smaller grey gem, for your food and your
+    // partner's. Unlike the food, it shows on the whole board, even in the dark. When it is
+    // eaten, the blue gem fades into the grey one.
+    var lastFood = null, eaten = {}, ghosts = [];
+    var FADE_SECONDS = 0.7, USED_OPACITY = 0.85, USED_SCALE = 0.8;
     var cellSize = 1;
     var boardOffset = (GRID_SIZE - 1) / 2;
 
@@ -426,6 +431,7 @@
         requestAnimationFrame(animate);
         if (STYLE === "trucks") trucks.animate();
         if (cave) cave.tick(caveClock.getElapsedTime());
+        if (ghosts.length) tickGhosts(caveClock ? caveClock.getElapsedTime() : 0);
         if (renderer && scene && camera) {
             renderer.render(scene, camera);
         }
@@ -439,12 +445,46 @@
         return Math.atan2(a[1] - b[1], b[0] - a[0]);
     }
 
+    function clock() { return caveClock ? caveClock.getElapsedTime() : 0; }
+
+    // The blue gem fades out while the grey one fades in, then the grey one stays.
+    function tickGhosts(now) {
+        ghosts.forEach(function (g) {
+            var k = Math.min(1, (now - g.start) / FADE_SECONDS);
+            g.fresh.opacity = 1 - k;
+            g.used.opacity = USED_OPACITY * k;
+        });
+    }
+
+    // Food that is no longer on the board was eaten. The server also lists each player's
+    // eaten squares (collected_coin_coordinates), which covers a page reload.
+    function trackEatenFood() {
+        var now = {};
+        (localState.coins || []).forEach(function (c) { now[c.x + "," + c.y] = true; });
+        var t = clock();
+        if (lastFood) {
+            Object.keys(lastFood).forEach(function (key) {
+                if (!now[key] && !eaten[key]) eaten[key] = { start: t };
+            });
+        }
+        Object.keys(localState.players || {}).forEach(function (pid) {
+            (localState.players[pid].collected_coin_coordinates || []).forEach(function (c) {
+                var key = (c.x !== undefined ? c.x : c[0]) + "," + (c.y !== undefined ? c.y : c[1]);
+                if (!now[key] && !eaten[key]) eaten[key] = { start: t - FADE_SECONDS };
+            });
+        });
+        // Food back on the board (the tutorial restarts a step) is not eaten any more.
+        Object.keys(eaten).forEach(function (key) { if (now[key]) delete eaten[key]; });
+        lastFood = now;
+    }
+
     function syncMeshes() {
         if (!boardGroup) return;
         if (STYLE === "trucks") {
             trucks.sync();
             return;
         }
+        trackEatenFood();
 
         Object.keys(entityMeshes).forEach(function (key) {
             boardGroup.remove(entityMeshes[key]);
@@ -474,6 +514,27 @@
             boardGroup.add(mesh);
             entityMeshes["coin_" + idx] = mesh;
         });
+
+        // Used food: grey gems where food was eaten, by you or your partner. Drawn everywhere,
+        // also outside your torchlight, and above the trails so their colour does not tint them.
+        ghosts = [];
+        var t = clock();
+        Object.keys(eaten).forEach(function (key) {
+            var xy = key.split(",").map(Number);
+            var gpos = gridToWorld(xy[0], xy[1]);
+            var ghost = new THREE.Group();
+            var used = CaveView.point(true), fresh = CaveView.point();
+            used.material = used.material.clone();  // each one fades on its own
+            fresh.material = fresh.material.clone();
+            used.scale.setScalar(USED_SCALE);
+            fresh.position.z = 0.001;
+            ghost.add(used, fresh);
+            ghost.position.set(gpos.x, gpos.y, 0.075);
+            boardGroup.add(ghost);
+            entityMeshes["eaten_" + key] = ghost;
+            ghosts.push({ used: used.material, fresh: fresh.material, start: eaten[key].start });
+        });
+        tickGhosts(t);
 
         // Trace: squares a pac-man has visited are tinted with its colour (not dots,
         // which would look like coins).

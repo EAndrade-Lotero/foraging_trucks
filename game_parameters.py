@@ -11,7 +11,7 @@ few rounds.
 """
 
 # When False, the four tutorial pages before pairing are omitted.
-INCLUDE_TUTORIAL = True
+INCLUDE_TUTORIAL = False
 
 START_MOVES = 40  # bank at the start of the game
 MAX_MOVES = 60  # most moves a player can invest in one round (option b, 12-oct)

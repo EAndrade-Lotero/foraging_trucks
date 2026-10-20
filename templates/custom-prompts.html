@@ -579,6 +579,26 @@
         });
     }
 
+    // A short arcade sound each time you eat a piece of food (static/sounds/collect.mp3).
+    var collectSound = null, lastFoodCount = null;
+    try {
+        collectSound = new Audio("/static/sounds/collect.mp3");
+        collectSound.preload = "auto";
+        collectSound.volume = 0.6;
+    } catch (e) {}
+
+    function playCollect(n) {
+        if (lastFoodCount !== null && n > lastFoodCount && collectSound) {
+            try {
+                var sound = collectSound.cloneNode();  // overlapping pickups each get a sound
+                sound.volume = collectSound.volume;
+                var played = sound.play();
+                if (played && played.catch) played.catch(function () {});
+            } catch (e) {}
+        }
+        lastFoodCount = n;
+    }
+
     // The food bank column: one gem per piece of food collected, new ones pop in.
     function fillBank(n) {
         var gems = document.querySelector("#foraging-bank .bank-gems");
@@ -616,6 +636,7 @@
             scoreEl.textContent = coins;
         }
         fillBank(coins);
+        playCollect(coins);
         var left = movesLeft();
         var fill = document.getElementById("foraging-moves-fill");
         if (fill) {

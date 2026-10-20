@@ -410,7 +410,7 @@ def buy_moves_page(participant: Participant, round_index: int) -> ModularPage:
             max_value=top,
             n_steps=n_stops,
             slider_id="moves-slider",
-            minimal_interactions=1,
+            minimal_interactions=0,  # Next works from the start: the default is a valid choice
             bot_response=min(30, top),
         ),
         time_estimate=MOVES_SECONDS,

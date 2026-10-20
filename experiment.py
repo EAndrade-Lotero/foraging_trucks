@@ -488,7 +488,7 @@ def propose_contract_page(participant: Participant) -> ModularPage:
             max_value=1,
             n_steps=CONTRACT_STEPS,
             slider_id="contract-slider",
-            minimal_interactions=1,
+            minimal_interactions=0,  # Next works from the start: the current contract is a valid proposal
             bot_response=0.5,
         ),
         time_estimate=CONTRACT_SECONDS,

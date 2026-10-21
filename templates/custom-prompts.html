@@ -464,7 +464,15 @@
         var t = clock();
         if (lastFood) {
             Object.keys(lastFood).forEach(function (key) {
-                if (!now[key] && !eaten[key]) eaten[key] = { start: t };
+                if (now[key] || eaten[key]) return;
+                eaten[key] = { start: t };
+                // Your partner ate it (they stand on that square): a softer sound. Your own
+                // pickups sound from the food counter (playCollect).
+                var xy = key.split(",").map(Number);
+                Object.keys(localState.players || {}).forEach(function (pid) {
+                    var p = localState.players[pid];
+                    if (String(pid) !== MY_ID && p.x === xy[0] && p.y === xy[1]) playSound(PARTNER_VOLUME);
+                });
             });
         }
         Object.keys(localState.players || {}).forEach(function (pid) {
@@ -587,15 +595,20 @@
         collectSound.volume = 0.6;
     } catch (e) {}
 
+    var PARTNER_VOLUME = 0.35;  // your partner's pickups sound softer than yours
+
+    function playSound(volume) {
+        if (!collectSound) return;
+        try {
+            var sound = collectSound.cloneNode();  // overlapping pickups each get a sound
+            sound.volume = volume;
+            var played = sound.play();
+            if (played && played.catch) played.catch(function () {});
+        } catch (e) {}
+    }
+
     function playCollect(n) {
-        if (lastFoodCount !== null && n > lastFoodCount && collectSound) {
-            try {
-                var sound = collectSound.cloneNode();  // overlapping pickups each get a sound
-                sound.volume = collectSound.volume;
-                var played = sound.play();
-                if (played && played.catch) played.catch(function () {});
-            } catch (e) {}
-        }
+        if (lastFoodCount !== null && n > lastFoodCount) playSound(collectSound ? collectSound.volume : 0.6);
         lastFoodCount = n;
     }
 

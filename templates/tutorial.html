@@ -105,7 +105,7 @@
         passed = false;
         // A whole page or a single step can drop the box and keep only the Continue button.
         el("tut-panel").classList.toggle("bare", !!(BARE || s.bare));
-        el("tut-progress").textContent = "Step " + (step + 1) + " of " + STEPS.length;
+        el("tut-progress").textContent = {{ config.progress_label | tojson }} + " " + (step + 1) + " of " + STEPS.length;
         el("tut-text").innerHTML = s.text;
         el("tut-feedback").innerHTML = "";
         el("tut-feedback").className = "";
@@ -120,12 +120,13 @@
         el("tut-restart").style.display = s.type === "board" ? "" : "none";
         // The practice board only moves while a board step is active.
         window.dispatchEvent(new CustomEvent("practice-enable", { detail: s.type === "board" }));
+        window.dispatchEvent(new CustomEvent("practice-target", { detail: s.target_cell || null }));
+        // Pages can set up each step (e.g. a new example in the contract tutorial, or the
+        // next foraging stage) before the restart checkpoint is saved.
+        window.dispatchEvent(new CustomEvent("tutorial-step", { detail: s }));
         if (s.type === "board") {
             window.dispatchEvent(new CustomEvent("practice-checkpoint"));
         }
-        window.dispatchEvent(new CustomEvent("practice-target", { detail: s.target_cell || null }));
-        // Pages can set up each step (e.g. a new example in the contract tutorial).
-        window.dispatchEvent(new CustomEvent("tutorial-step", { detail: s }));
         // A step can open with its instruction in a popup instead of the box.
         if (s.popup) popup("Practice", s.popup_title || "", s.popup, false);
     }

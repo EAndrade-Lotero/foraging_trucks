@@ -212,7 +212,7 @@
     // One line under the scene saying what the contract does, in words.
     SplitScene.caption = function (info) {
         var w = Math.round(info.contract * 100), n = Math.abs(info.transfer);
-        var head = "<strong>" + (100 - w) + "% commission · " + w + "% wages</strong>";
+        var head = "<strong>" + w + "% group contribution</strong>";
         if (!n && w > 0 && info.gap) return head + ": no whole point moves yet";
         if (!n) return head + ": everyone keeps what they collected";
         return head + ": " + (info.transfer > 0 ? "you give " : "your partner gives ") + amount(n)

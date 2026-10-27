@@ -256,6 +256,45 @@ body #main-body:has(#wait-page) {
     text-align: left;
 }
 
+/* Accumulated food (invest page) and the group contribution in force (score page). */
+.food-panel,
+.contribution-panel {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    max-width: min(100%, 48rem);
+    margin: 0.8rem 0;
+    padding: 0.75rem 1rem;
+    background: #f3f6fa;
+    border: 1px solid #d5dde6;
+    border-radius: 8px;
+}
+
+.food-panel-label,
+.contribution-panel-label {
+    font-weight: 600;
+}
+
+.food-panel-note {
+    font-size: 0.9rem;
+    color: #495057;
+    font-weight: 400;
+}
+
+.food-panel-value,
+.contribution-panel-value {
+    font-size: 1.6rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+}
+
+/* Instruction under the invest slider, as on tutorial 1. */
+#moves-output {
+    font-weight: 400;
+}
+
 /* A player ran out of moves (experiment.py, score_page). */
 .out-note {
     margin-top: 0.8rem;

@@ -11,9 +11,11 @@ few rounds.
 """
 
 # When False, the four tutorial pages before pairing are omitted.
-INCLUDE_TUTORIAL = False
+INCLUDE_TUTORIAL = True
 
-START_MOVES = 40  # bank at the start of the game
+START_MOVES = 40  # move bank at the start of the game
+INITIAL_FOOD = 10  # food each participant starts with
+STALE_FOOD = 2  # food lost at the start of every round, before investing
 MAX_MOVES = 60  # most moves a player can invest in one round (option b, 12-oct)
 MOVE_STEP = 5  # the invest slider moves in steps of 5 moves
 # Food -> moves: each point (food) collected converts into this many moves. Keep it even, so

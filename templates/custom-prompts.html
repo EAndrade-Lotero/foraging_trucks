@@ -427,8 +427,9 @@
         animate();
     }
 
-    function animate() {
+    function animate(now) {
         requestAnimationFrame(animate);
+        tickPracticeBot(typeof now === "number" ? now : null);
         if (STYLE === "trucks") trucks.animate();
         if (cave) cave.tick(caveClock.getElapsedTime());
         if (ghosts.length) tickGhosts(caveClock ? caveClock.getElapsedTime() : 0);
@@ -866,7 +867,34 @@
         if (boardGroup) syncMeshes();
     });
     var practiceCheckpoint = null;
-    window.addEventListener("practice-enable", function (e) { practiceEnabled = e.detail; });
+    // Group-foraging stages: the partner walks to the closest food, one cell at a time.
+    var practiceBotId = null;
+    var botClock = null;
+    var BOT_STEP_MS = 250;  // a steady walk; a held key still moves the participant faster
+    window.addEventListener("practice-enable", function (e) { practiceEnabled = !!e.detail; });
+    window.addEventListener("tutorial-step", function (e) {
+        var s = e.detail || {};
+        practiceBotId = s.bot || null;
+        botClock = null;
+        if (s.heading) {
+            var title = document.getElementById("tut-board-title");
+            if (title) title.textContent = s.heading;
+        }
+        if (s.legend) {
+            var legend = document.getElementById("foraging-legend");
+            if (legend) legend.innerHTML = s.legend;
+        }
+        if (!s.setup) return;
+        localState.players = JSON.parse(JSON.stringify(s.setup.players));
+        localState.coins = JSON.parse(JSON.stringify(s.setup.coins));
+        eaten = {};
+        lastFood = null;
+        ghosts = [];
+        if (boardGroup) {
+            syncMeshes();
+            updateScore();
+        }
+    });
     window.addEventListener("practice-checkpoint", function () {
         // A tutorial step never starts without moves (wandering could spend them all).
         var me = localState.players[MY_ID];
@@ -882,23 +910,81 @@
         updateScore();
     });
 
+    // One step, same rules as the experiment: orthogonal, edges are free, landing on food collects it.
+    function practiceMovePlayer(player, dx, dy) {
+        if (!player || player.moves_left <= 0) return false;
+        var x = Math.max(0, Math.min(GRID_SIZE - 1, player.x + dx));
+        var y = Math.max(0, Math.min(GRID_SIZE - 1, player.y + dy));
+        if (x === player.x && y === player.y) return false;
+        player.x = x;
+        player.y = y;
+        player.moves_left -= 1;
+        if (!player.trajectory) player.trajectory = [];
+        player.trajectory.push([x, y]);
+        localState.coins = localState.coins.filter(function (coin) {
+            if (coin.x !== x || coin.y !== y) return true;
+            player.coins += 1;
+            return false;
+        });
+        return true;
+    }
+
+    function closestFood(player) {
+        var best = null, bestKey = null;
+        (localState.coins || []).forEach(function (coin) {
+            var key = [
+                Math.abs(coin.x - player.x) + Math.abs(coin.y - player.y),
+                Math.abs(coin.y - player.y),
+                Math.abs(coin.x - player.x),
+            ];
+            var nearer = !bestKey
+                || key[0] < bestKey[0]
+                || (key[0] === bestKey[0] && (key[1] < bestKey[1]
+                    || (key[1] === bestKey[1] && key[2] < bestKey[2])));
+            if (nearer) {
+                best = coin;
+                bestKey = key;
+            }
+        });
+        return best;
+    }
+
+    function stepPracticeBot() {
+        var bot = localState.players[practiceBotId];
+        var food = bot && closestFood(bot);
+        if (!food) return;
+        var dx = food.x - bot.x, dy = food.y - bot.y;
+        if (dx === 0 && dy === 0) return;
+        var stepX = dx === 0 ? 0 : (dx > 0 ? 1 : -1);
+        var stepY = dy === 0 ? 0 : (dy > 0 ? 1 : -1);
+        // Longer axis first; a tie steps sideways, then the next tick steps the other way.
+        var moved = Math.abs(dx) >= Math.abs(dy)
+            ? practiceMovePlayer(bot, stepX, 0)
+            : practiceMovePlayer(bot, 0, stepY);
+        if (!moved) return;
+        syncMeshes();
+        updateScore();
+    }
+
+    function tickPracticeBot(now) {
+        if (!PRACTICE || !practiceEnabled || !practiceBotId || now === null) {
+            botClock = null;
+            return;
+        }
+        if (botClock === null) {
+            botClock = now;
+            return;
+        }
+        if (now - botClock < BOT_STEP_MS) return;
+        botClock += BOT_STEP_MS;
+        if (now - botClock > BOT_STEP_MS) botClock = now;
+        stepPracticeBot();
+    }
+
     function practiceMove(dx, dy) {
         if (!practiceEnabled) return;
         var me = localState.players[MY_ID];
-        var x = Math.max(0, Math.min(GRID_SIZE - 1, me.x + dx));
-        var y = Math.max(0, Math.min(GRID_SIZE - 1, me.y + dy));
-        if (x === me.x && y === me.y) return;
-        me.x = x;
-        me.y = y;
-        me.moves_left -= 1;
-        me.trajectory.push([x, y]);
-        localState.coins = localState.coins.filter(function (coin) {
-            if (coin.x === x && coin.y === y) {
-                me.coins += 1;
-                return false;
-            }
-            return true;
-        });
+        if (!practiceMovePlayer(me, dx, dy)) return;
         syncMeshes();
         updateScore();
         window.dispatchEvent(new CustomEvent("practice-move", { detail: me }));

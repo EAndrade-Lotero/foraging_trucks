@@ -20,28 +20,30 @@ from .game_parameters import (
 )
 
 TUTORIAL_SECONDS = 60
-CONTRACT_ENDS = ("Commission<small>keep what you collect</small>", "Wages<small>share equally</small>")
+CONTRACT_ENDS = ("0%<small>group contribution</small>", "100%<small>group contribution</small>")
 
 
 class TutorialControl(NullControl):
     macro = "tutorial_steps"
     external_template = "tutorial.html"
 
-    def __init__(self, steps: list, bare: bool = False):
+    def __init__(self, steps: list, bare: bool = False, progress_label: str = "Step"):
         super().__init__()
         self.steps = steps
         self.bare = bare  # no instruction box: only the Continue button (the page says what to do)
+        self.progress_label = progress_label
         self.show_next_button = False
 
     def get_bot_response(self, experiment, bot, page, prompt):
         return {"passed": True, "mistakes": 0}
 
 
-def tutorial_page(label: str, prompt, steps: list, bare: bool = False) -> ModularPage:
+def tutorial_page(label: str, prompt, steps: list, bare: bool = False,
+                  progress_label: str = "Step") -> ModularPage:
     return ModularPage(
         label,
         prompt,
-        TutorialControl(steps, bare),
+        TutorialControl(steps, bare, progress_label),
         time_estimate=TUTORIAL_SECONDS,
         show_next_button=False,
     )
@@ -195,39 +197,148 @@ class PracticeBoardPrompt(Prompt):
         self.view_radius = VIEW_RADIUS
 
 
+def _pawn(x: int, y: int, color: str, moves: int, trajectory: list = None) -> dict:
+    return dict(x=x, y=y, color=color, coins=0, moves_left=moves,
+                trajectory=[[x, y]] if trajectory is None else trajectory, connected=True)
+
+
+def _food_toward(corner: tuple, n: int, blocked: set) -> list:
+    """The `n` cells nearest `corner` (Manhattan), skipping blocked cells and the corner itself.
+
+    y grows downward, so (0, 0) is the top left and (size - 1, 0) is the top right.
+    Ties go to the cell closer to that corner along each axis.
+    """
+    cx, cy = corner
+    cells = []
+    for y in range(GRID_SIZE):
+        for x in range(GRID_SIZE):
+            if (x, y) == corner or (x, y) in blocked:
+                continue
+            cells.append((abs(x - cx) + abs(y - cy), abs(y - cy), abs(x - cx), x, y))
+    cells.sort()
+    return [(x, y) for *_, x, y in cells[:n]]
+
+
+def _coins(cells: list) -> list:
+    return [{"id": i, "x": x, "y": y} for i, (x, y) in enumerate(cells)]
+
+
 def moving_tutorial() -> ModularPage:
-    """Andrade, 13-oct: the real 16x16 board in the dark, 80 moves, one point in the centre.
-    Collecting it ends the tutorial."""
+    """Three stages on the real board (Andrade, 13-oct, plus group-foraging practice).
+
+    Stage 1 is the original task: one piece of food in the centre. Stages 2 and 3 are live
+    foraging with a partner bot that walks, one cell at a time, to the closest food. Movement,
+    move cost, edges and collecting match the experiment; the bot simply has no keyboard.
+    """
     moves = 80
     centre = GRID_SIZE // 2
-    me = dict(x=1, y=1, color=PLAYER_COLORS[0], coins=0, moves_left=moves,
-              trajectory=[[1, 1]], connected=True)
-    partner = dict(x=GRID_SIZE - 2, y=GRID_SIZE - 2, color=PLAYER_COLORS[1], coins=0, moves_left=0,
-                   trajectory=[[GRID_SIZE - 2, GRID_SIZE - 5 + k] for k in range(4)], connected=True)
+    top_left, top_right = (0, 0), (GRID_SIZE - 1, 0)
+    bottom_left = (0, GRID_SIZE - 1)
+    me = _pawn(1, 1, PLAYER_COLORS[0], moves)
+    partner = _pawn(
+        GRID_SIZE - 2, GRID_SIZE - 2, PLAYER_COLORS[1], 0,
+        trajectory=[[GRID_SIZE - 2, GRID_SIZE - 5 + k] for k in range(4)],
+    )
+    centre_coins = [{"id": 0, "x": centre, "y": centre}]
+    # 40 pieces heaped on the top right; then 20 there and 20 on the bottom left.
+    patch_top_right = _food_toward(top_right, 40, {top_left})
+    split_food = (
+        _food_toward(top_right, 20, {top_left, top_right})
+        + _food_toward(bottom_left, 20, {top_left, top_right})
+    )
     prompt = PracticeBoardPrompt(
-        """<h3>Tutorial 2 of 3: moving in the cave</h3>""",
+        """<h3 id="tut-board-title">Tutorial 2 of 3: moving in the cave</h3>""",
         players={"0": me, "1": partner},
-        coins=[{"id": 0, "x": centre, "y": centre}],
+        coins=centre_coins,
         moves=moves,
         legend='<div class="board-instruction"><em>Instruction: collect the food in the '
                'centre of the cave.</em></div>',
     )
+
+    def board_step(check: str, **extra) -> dict:
+        return dict(type="board", check=check, **extra)
+
+    centre_legend = (
+        '<div class="board-instruction"><em>Instruction: collect the food in the '
+        'centre of the cave.</em></div>'
+    )
+    search_legend = (
+        '<div class="board-instruction"><em>Instruction: search for food.</em></div>'
+    )
     steps = [
-        dict(type="board", check=f"me.x === {centre} && me.y === {centre}",
-             text="Collect the food in the centre of the cave.",
-             popup_title="Find the food",
-             popup="You are the pac-man with the <strong>white ring</strong>. There is food in "
-             "the <strong>centre</strong> of the cave: go and collect it. Use the arrow keys "
-             "(&uarr; &darr; &larr; &rarr;) or W, A, S, D.",
-             wrong_title="You've not found the food",
-             wrong="It is in the <strong>centre</strong> of the cave.",
-             out_of_moves="You ran out of moves, so this step starts again. The food is in the "
-             "<strong>centre</strong> of the cave.",
-             hint="Food only shows up in your torchlight. Head for the middle of the board.",
-             explanation="Food only shows up in your torchlight. Each step uses one move. You "
-             "always see your partner and both trails."),
+        board_step(
+            f"me.x === {centre} && me.y === {centre}",
+            text="Collect the food in the centre of the cave.",
+            heading="Tutorial 2 of 3: moving in the cave",
+            legend=centre_legend,
+            setup={"players": {"0": me, "1": partner}, "coins": centre_coins},
+            popup_title="Stage 1 of 3: find the food",
+            popup="You are the pac-man with the <strong>white ring</strong>. There is food in "
+            "the <strong>centre</strong> of the cave: go and collect it. Use the arrow keys "
+            "(&uarr; &darr; &larr; &rarr;) or W, A, S, D.",
+            wrong_title="You've not found the food",
+            wrong="It is in the <strong>centre</strong> of the cave.",
+            out_of_moves="You ran out of moves, so this step starts again. The food is in the "
+            "<strong>centre</strong> of the cave.",
+            hint="Food only shows up in your torchlight. Head for the middle of the board.",
+            explanation="Food only shows up in your torchlight. Each step uses one move. You "
+            "always see your partner and both trails.",
+        ),
+        board_step(
+            "me.coins >= 1",
+            text="Search for food.",
+            heading="Tutorial 2 of 3: foraging together",
+            legend=search_legend,
+            bot="1",
+            setup={
+                "players": {
+                    "0": _pawn(*top_left, PLAYER_COLORS[0], moves),
+                    "1": _pawn(*top_right, PLAYER_COLORS[1], moves),
+                },
+                "coins": _coins(patch_top_right),
+            },
+            popup_title="Stage 2 of 3: search for food",
+            popup="Search for food. The other pac-man is your partner: they always walk to the "
+            "<strong>closest food</strong>, one step at a time, and each step uses one move, "
+            "just as yours do. You start at the <strong>top left</strong>; they start at the "
+            "<strong>top right</strong>. Forty pieces of food are toward the "
+            "<strong>top right</strong>. Collect one.",
+            wrong_title="Keep searching",
+            wrong="The food is toward the <strong>top right</strong>. Walk onto a piece to collect it.",
+            out_of_moves="You ran out of moves before collecting food, so this stage starts again. "
+            "The food is toward the <strong>top right</strong>.",
+            hint="Head for the top right. Food only shows up in your torchlight.",
+            explanation="Your partner was walking to the closest food at the same time. Each step, "
+            "yours and theirs, uses one move.",
+        ),
+        board_step(
+            "me.coins >= 1",
+            text="Search for food.",
+            heading="Tutorial 2 of 3: two patches of food",
+            legend=search_legend,
+            bot="1",
+            setup={
+                "players": {
+                    "0": _pawn(*top_left, PLAYER_COLORS[0], moves),
+                    "1": _pawn(*top_right, PLAYER_COLORS[1], moves),
+                },
+                "coins": _coins(split_food),
+            },
+            popup_title="Stage 3 of 3: two patches",
+            popup="Search for food again. This time there are <strong>20</strong> pieces in the "
+            "<strong>bottom left</strong> and <strong>20</strong> in the <strong>top right</strong>. "
+            "You still start at the <strong>top left</strong> and your partner at the "
+            "<strong>top right</strong>. They still walk to the closest food. Collect one.",
+            wrong_title="Keep searching",
+            wrong="There is food in the <strong>bottom left</strong> and the <strong>top right</strong>.",
+            out_of_moves="You ran out of moves before collecting food, so this stage starts again. "
+            "There is food in the <strong>bottom left</strong> and the <strong>top right</strong>.",
+            hint="One patch is below you, the other is where your partner started.",
+            explanation="The two patches are not equally close to both of you. Your partner still "
+            "takes the food nearest to them.",
+        ),
     ]
-    return tutorial_page("tutorial_board", prompt, steps, bare=True)
+    return tutorial_page("tutorial_board", prompt, steps, bare=True, progress_label="Stage")
 
 
 def split_scene(scene_id: str, slider_id: str, you: int, partner: int, contract: float,

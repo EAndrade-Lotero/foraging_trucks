@@ -1,0 +1,38 @@
+# Deployment selection is independent of Git.
+version = 1
+
+[exclude]
+# Root-relative prefixes. data skips ./data, not static/data.
+paths = [
+    ".cache",
+    ".cursor/skills/psynet",
+    ".deploy",
+    "audit",
+    "data",
+    "deploy",
+    "deploy_logs",
+    "develop",
+    "exports",
+    "local_only",
+    "snapshots",
+    "static/assets",
+]
+# Basenames skipped in every directory.
+names = [
+    ".env",
+    ".idea",
+    ".pytest_cache",
+    ".venv",
+    "__pycache__",
+    "env",
+    "logs.jsonl",
+    "node_modules",
+    "server.log",
+    "source_code.zip",
+]
+# Literal endings such as .db, skipped in every directory.
+suffixes = [
+    ".DS_Store",
+    ".db",
+    ".dmg",
+]

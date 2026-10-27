@@ -30,12 +30,13 @@ from .game_parameters import (
     CONTRACT_BLOCK,
     FOOD_MOVES,
     INCLUDE_TUTORIAL,
+    INITIAL_FOOD,
     MAX_MOVES,
-    MOVE_STEP,
     N_ROUNDS,
     FOOD_CONVERSION,
     SOLO_FOOD_FACTOR,
     SOLO_MAX_ROUNDS,
+    STALE_FOOD,
     START_MOVES,
 )
 from .tutorial import (
@@ -121,8 +122,14 @@ def signed(n: int) -> str:
     return f"+ {n}" if n > 0 else (f"− {-n}" if n < 0 else "0")
 
 
+def contribution_percent(contract: float) -> str:
+    """The group-contribution slider, as a percent. Averages can fall between the 10% marks."""
+    pct = 100 * _as_float(contract)
+    return str(int(round(pct))) if abs(pct - round(pct)) < 1e-6 else f"{pct:.1f}"
+
+
 def contract_label(contract: float) -> str:
-    return f"{round(100 * (1 - contract))}% commission / {round(100 * contract)}% wages"
+    return f"{contribution_percent(contract)}% group contribution"
 
 
 def points(n: int) -> str:
@@ -150,12 +157,36 @@ def map_points(terrain) -> int:
         return GRID_SIZE * GRID_SIZE
 
 
+def accumulated_food(participant: Participant) -> int:
+    """Food on hand before this round's stale food is taken."""
+    total = INITIAL_FOOD
+    for r in results(participant):
+        total += int(r.get("own", 0)) - int(r.get("food_spent", 0)) - STALE_FOOD
+    return total
+
+
+def food_available(participant: Participant) -> int:
+    """Food left to invest after this round's stale food."""
+    return max(0, accumulated_food(participant) - STALE_FOOD)
+
+
+def investable_food(participant: Participant) -> int:
+    """Food the slider can turn into moves this round."""
+    cap = MAX_MOVES // FOOD_CONVERSION if FOOD_CONVERSION else 0
+    return min(food_available(participant), cap)
+
+
+def food_spent_answer(participant: Participant) -> int:
+    """The invest-slider answer, in food, kept within what the slider allowed."""
+    top = investable_food(participant)
+    if top <= 0:
+        return 0
+    return int(min(max(_as_float(last_valid_answer(participant, "buy_moves")), 0), top))
+
+
 def moves_invested(participant: Participant) -> int:
-    """The invest-slider answer, kept within what the slider allowed (the browser sends it)."""
-    top, _ = invest_slider(bank(participant))
-    step = MOVE_STEP if top >= MOVE_STEP else 1
-    raw = int(min(max(_as_float(last_valid_answer(participant, "buy_moves")), 0), top))
-    return raw - raw % step
+    """Moves this round: each unit of food invested becomes FOOD_CONVERSION moves."""
+    return food_spent_answer(participant) * FOOD_CONVERSION
 
 
 def bank(participant: Participant) -> int:
@@ -211,8 +242,10 @@ def notice_if_alone(participant: Participant):
 
 
 def store_investment(participant: Participant):
-    """The investment the game uses, checked against the bank once, right after the page."""
-    participant.var.set("invested", moves_invested(participant))
+    """The investment the game uses, checked against the food on hand, right after the page."""
+    spent = food_spent_answer(participant)
+    participant.var.set("food_spent", spent)
+    participant.var.set("invested", spent * FOOD_CONVERSION)
 
 
 def solo_rounds(participant: Participant) -> int:
@@ -252,6 +285,7 @@ def score_round(group, participants, participant, barrier):
         result = dict(
             round=round_number, solo=solo, contract=None if solo else contract,
             own=own, other=other, gained=gained, invested=invested, food=food, score=score,
+            food_spent=int(p.var.get("food_spent", 0) or 0),
         )
         p.var.set("results", results(p) + [result])
         scores = p.var.get("scores", {})
@@ -282,29 +316,7 @@ def average_proposals(group, participants, participant, barrier):
         group.var.set("contract", sum(proposals) / len(proposals))
 
 
-def slider_preview(slider_id: str, output_id: str, js_body: str) -> str:
-    """Live text next to a slider; `v` is the current slider value.
-
-    Runs on trialConstruct because the PsyNet slider control is rendered after the prompt.
-    """
-    return f"""
-        <div id="{output_id}" class="live-value"></div>
-        <script>
-        psynet.trial.onEvent("trialConstruct", function () {{
-            var slider = document.getElementById("{slider_id}");
-            var out = document.getElementById("{output_id}");
-            function render() {{
-                var v = parseFloat(slider.value);
-                {js_body}
-            }}
-            slider.addEventListener("input", render);
-            render();
-        }});
-        </script>
-    """
-
-
-CONTRACT_STEPS = 11  # 0%, 10%, ..., 100% wages
+CONTRACT_STEPS = 11  # 0%, 10%, ..., 100% group contribution
 
 
 def wait_page(text: str) -> WaitPage:
@@ -331,15 +343,15 @@ def tutorial_page() -> InfoPage:
         Markup(
             f"""
             <h3>How the game works</h3>
-            <p>Everything in this game is counted in <strong>moves</strong>. You start with
-            <strong>{START_MOVES} moves</strong> in your bank and play up to <strong>{N_ROUNDS}
-            rounds</strong> with a partner, each on a new board. Each round:</p>
+            <p>You start with <strong>{INITIAL_FOOD} food</strong> and play up to
+            <strong>{N_ROUNDS} rounds</strong> with a partner, each on a new board. Each round:</p>
             <ol>
-                <li><strong>Invest moves</strong> from your bank: they are the steps your
-                    pac-man can take.</li>
-                <li><strong>Collect points</strong> in a dark cave, with a torch.</li>
-                <li><strong>Share the points</strong> with the contract. The game turns them into
-                    moves for you and pays for food.</li>
+                <li><strong>Invest food</strong> from your bank. Each unit becomes
+                    {FOOD_CONVERSION} moves, the steps your pac-man can take.
+                    <strong>{STALE_FOOD} food</strong> goes stale every round.</li>
+                <li><strong>Collect points</strong> in a dark cave, with a torch. Points are food.</li>
+                <li><strong>Share the points</strong> by the group contribution. The game turns
+                    them into moves for you and pays for food.</li>
             </ol>
             <p>Every {CONTRACT_BLOCK} rounds you and your partner propose a new contract.
             If your bank runs out, you are out of the game and your partner goes on alone.</p>
@@ -355,64 +367,113 @@ def colors(participant: Participant) -> tuple:
     return PLAYER_COLORS[me], PLAYER_COLORS[1 - me]
 
 
-def invest_slider(have: int) -> tuple:
-    """Largest investment and number of slider stops, never more than the bank.
-
-    The slider moves in steps of MOVE_STEP; with fewer than MOVE_STEP moves in the bank it
-    moves one by one, so that those last moves can still be invested.
+def food_panel(accumulated: int) -> str:
+    """The food on hand, and the stale-food parameter, before this round's subtraction."""
+    return f"""
+        <div class="food-panel">
+            <div>
+                <div class="food-panel-label">Accumulated food</div>
+                <div class="food-panel-note">Stale food: {STALE_FOOD} per round</div>
+            </div>
+            <div class="food-panel-value">{accumulated}</div>
+        </div>
     """
-    if have >= MOVE_STEP:
-        top = min(MAX_MOVES, have - have % MOVE_STEP)
-        return top, top // MOVE_STEP + 1
-    return max(have, 1), max(have, 1) + 1
+
+
+def food_table(participant: Participant) -> str:
+    """Initial food, then each finished round, then this round's stale food taken off."""
+    rows = [f"<tr><td>Initial food</td><td class='num'>{INITIAL_FOOD}</td></tr>"]
+    running = INITIAL_FOOD
+    for r in results(participant):
+        n = r["round"]
+        rows.append(f"<tr><td>Collected, round {n}</td><td class='num'>{signed(int(r.get('own', 0)))}</td></tr>")
+        running += int(r.get("own", 0))
+        spent = int(r.get("food_spent", 0))
+        rows.append(f"<tr><td>Invested, round {n}</td><td class='num'>{signed(-spent)}</td></tr>")
+        running -= spent
+        rows.append(f"<tr><td>Stale food, round {n}</td><td class='num'>{signed(-STALE_FOOD)}</td></tr>")
+        running -= STALE_FOOD
+    available = max(0, running - STALE_FOOD)
+    can_invest = investable_food(participant)
+    if results(participant):
+        rows.append(f"<tr class='total'><td>Accumulated food</td><td class='num'>{running}</td></tr>")
+    rows.append(f"<tr><td>Stale food, this round</td><td class='num'>{signed(-STALE_FOOD)}</td></tr>")
+    rows.append(f"<tr class='total'><td>Food you can invest</td><td class='num'>{can_invest}</td></tr>")
+    if can_invest < available:
+        cap = MAX_MOVES // FOOD_CONVERSION
+        rows.append(
+            f"<tr><td colspan='2'><span class='note'>At most {cap} food can become moves "
+            f"this round ({MAX_MOVES} moves).</span></td></tr>"
+        )
+    return "<table class='points-table'>" + "".join(rows) + "</table>"
 
 
 def buy_moves_page(participant: Participant, round_index: int) -> ModularPage:
-    have = bank(participant)
-    top, n_stops = invest_slider(have)
+    """Same layout as tutorial 1: the food bank turns into moves as the slider moves."""
+    accumulated = accumulated_food(participant)
+    top = investable_food(participant)
+    solo = ""
     if is_solo(participant):
-        situation = (
-            f"Your partner {partner_gone(participant)}, so you play <strong>alone</strong>: "
-            "no contract, and "
-            f"food costs {FOOD_MOVES * SOLO_FOOD_FACTOR} moves. You can play at most "
-            f"{SOLO_MAX_ROUNDS - solo_rounds(participant)} more rounds."
+        solo = (
+            f"<p>Your partner {partner_gone(participant)}, so you play <strong>alone</strong>. "
+            f"You can play at most {SOLO_MAX_ROUNDS - solo_rounds(participant)} more rounds.</p>"
+        )
+    if top <= 0:
+        # SliderControl rejects max == min, so the control stays submittable but hidden.
+        converter = "<p>You have no food left to turn into moves this round.</p>"
+        frame = "<style>#moves-slider { display: none; }</style>"
+        slider = SliderControl(
+            start_value=0, min_value=0, max_value=1, n_steps=2,
+            slider_id="moves-slider", minimal_interactions=0, bot_response=0,
         )
     else:
-        situation = (
-            f"Contract: <strong>{contract_label(current_contract(participant))}</strong>. "
-            f"Food costs {FOOD_MOVES} moves each round."
+        converter = f"""
+        <div id="round-convert" class="scene-box"></div>
+        <script src="/static/convert_scene.js"></script>
+        <div id="moves-output" class="live-value"></div>
+        {slider_frame("moves-slider", "", "", top + 1, below="moves-output", values=list(range(top + 1)))}
+        <script>
+        psynet.trial.onEvent("trialConstruct", function () {{
+            var slider = document.getElementById("moves-slider");
+            var convert = ConvertScene(document.getElementById("round-convert"),
+                                       {{bank: {top}, perPoint: {FOOD_CONVERSION}}});
+            var out = document.getElementById("moves-output");
+            function show(animate) {{
+                var v = parseInt(slider.value, 10);
+                convert.set(v, animate);
+                out.innerHTML = "<em>Instruction: invest " + v + " food</em>";
+            }}
+            slider.addEventListener("input", function () {{ show(true); }});
+            show(false);
+        }});
+        </script>
+        """
+        frame = ""
+        slider = SliderControl(
+            start_value=0,
+            min_value=0,
+            max_value=top,
+            n_steps=top + 1,
+            slider_id="moves-slider",
+            minimal_interactions=0,  # Next works from the start: investing nothing is allowed
+            bot_response=min(2, top),
         )
-    preview = slider_preview(
-        "moves-slider",
-        "moves-output",
-        f"""
-        out.innerHTML = "You invest <strong>" + v + (v === 1 ? " move" : " moves")
-            + "</strong>; " + ({have} - v) + " stay in your bank";
-        """,
-    )
     prompt = Markup(
         f"""
-        <h3>Round {round_index + 1} of {N_ROUNDS}: invest moves</h3>
-        <p>You have <strong>{have} moves</strong> in your bank. <strong>How many do you want to
-        invest in this round?</strong> They are the steps your pac-man can take. After the round,
-        the points are shared with the contract and turned into moves ({FOOD_CONVERSION} per point).</p>
-        <p>{situation}</p>
-        {preview}
-        {slider_frame("moves-slider", "0 moves", f"{top} moves", n_stops, below="moves-output")}
+        <h3>Round {round_index + 1} of {N_ROUNDS}: food and moves</h3>
+        <p>This is your <strong>food bank</strong>. Here you can turn food into moves for foraging.
+        <strong>Each unit of food is worth {FOOD_CONVERSION} moves.</strong></p>
+        {solo}
+        {food_panel(accumulated)}
+        {food_table(participant)}
+        {converter}
+        {frame}
         """
     )
     return ModularPage(
         "buy_moves",
         Prompt(prompt),
-        SliderControl(
-            start_value=min(20, top),
-            min_value=0,
-            max_value=top,
-            n_steps=n_stops,
-            slider_id="moves-slider",
-            minimal_interactions=0,  # Next works from the start: the default is a valid choice
-            bot_response=min(30, top),
-        ),
+        slider,
         time_estimate=MOVES_SECONDS,
     )
 
@@ -443,8 +504,12 @@ def score_page(participant: Participant) -> InfoPage:
                             you_color=you, partner_color=partner, fixed=True, play_from=0)
         body = f"""
             <p>You collected <strong>{points(r["own"])}</strong> and your partner
-            <strong>{points(r["other"])}</strong>. Watch the contract
-            (<strong>{contract_label(r["contract"])}</strong>) share them:</p>
+            <strong>{points(r["other"])}</strong>.</p>
+            <div class="contribution-panel">
+                <div class="contribution-panel-label">Group contribution</div>
+                <div class="contribution-panel-value">{contribution_percent(r["contract"])}%</div>
+            </div>
+            <p>The group contribution shares the points:</p>
             {scene}
         """
     if is_out(participant):
@@ -469,9 +534,9 @@ def propose_contract_page(participant: Participant) -> ModularPage:
                         you_color=you, partner_color=partner)
     prompt = Markup(
         f"""
-        <h3>Propose a new contract</h3>
+        <h3>Propose the group contribution</h3>
         <p>The last {CONTRACT_BLOCK} rounds used <strong>{contract_label(contract)}</strong>.
-        Move the slider to propose the contract for the <strong>next {CONTRACT_BLOCK} rounds</strong>.
+        Move the slider to propose the group contribution for the <strong>next {CONTRACT_BLOCK} rounds</strong>.
         Your partner proposes one too, and the game uses <strong>the average</strong> of both.</p>
         <p class="live-note">With this round's points (you {r["own"]}, your partner {r["other"]}),
         your proposal would share them like this:</p>
@@ -557,7 +622,7 @@ class ForagingTrucksTrial(StaticTrial):
             ),
             crew_barrier(
                 f"moves_{self.node_id}",
-                "Waiting for your partner to finish investing moves...",
+                "Waiting for your partner to finish investing food...",
             ),
             playing(
                 PageMaker(

@@ -339,3 +339,31 @@ body #main-body:has(#wait-page) {
 #tut-contract-out {
     font-weight: 400;
 }
+
+/* Diagram under tutorial 3 explaining how group contribution redistributes loot. */
+.learn-more {
+    max-width: min(100%, 48rem);
+    margin: 1.4rem 0 0.4rem;
+    padding: 1rem 1.1rem 1.15rem;
+    background: #f3f6fa;
+    border: 1px solid #d5dde6;
+    border-radius: 8px;
+}
+
+.learn-more h4 {
+    margin: 0 0 0.75rem;
+    font-size: 1.15rem;
+}
+
+.learn-more img {
+    display: block;
+    width: 100%;
+    height: auto;
+    margin: 0 0 0.75rem;
+    background: #fff;
+    border-radius: 6px;
+}
+
+.learn-more p {
+    margin: 0;
+}

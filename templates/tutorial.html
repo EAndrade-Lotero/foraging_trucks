@@ -72,12 +72,19 @@
 
     function el(id) { return document.getElementById(id); }
 
+    // What the popup's button does. Instructions and "try again" only close it;
+    // "Goal reached" continues to the next step.
+    var onPopupOk = closePopup;
+
     // Shows the popup. The practice board stays still while it is open.
-    function popup(tag, title, html, bad) {
+    // `ok` may be {label, action} for a button other than OK.
+    function popup(tag, title, html, bad, ok) {
         el("tut-wrong-tag").textContent = tag;
         el("tut-wrong-tag").classList.toggle("bad", !!bad);
         el("tut-wrong-title").textContent = title;
         el("tut-wrong-text").innerHTML = html;
+        el("tut-wrong-ok").textContent = ok && ok.label ? ok.label : "OK";
+        onPopupOk = ok && ok.action ? ok.action : closePopup;
         el("tut-wrong").hidden = false;
         window.dispatchEvent(new CustomEvent("practice-enable", { detail: false }));
         el("tut-wrong-ok").focus();
@@ -85,6 +92,7 @@
 
     function closePopup() {
         el("tut-wrong").hidden = true;
+        el("tut-wrong-ok").textContent = "OK";
         var s = STEPS[step];
         if (s && s.type === "board" && !passed) {
             window.dispatchEvent(new CustomEvent("practice-enable", { detail: true }));
@@ -158,11 +166,17 @@
         }
     }
 
-    // A board step that passes says so in a popup that points to Continue (Thomas, 3-nov).
+    // A board step that passes says so in a popup. Continue there moves on (Thomas, 3-nov).
     function complete(explanation) {
         feedback(true, explanation);
-        popup("Complete", "Goal reached!", (explanation || "")
-            + " Click <strong>Continue</strong> to go on.", false);
+        var html = (explanation || "").replace(/^\s+|\s+$/g, "");
+        popup("Complete", "Goal reached!",
+            (html ? html + " " : "") + "Click <strong>Continue</strong> to go on.",
+            false,
+            { label: "Continue", action: function () {
+                el("tut-wrong").hidden = true;
+                next();
+            } });
     }
 
     function next() {
@@ -252,7 +266,7 @@
         }
     });
     el("tut-button").addEventListener("click", check);
-    el("tut-wrong-ok").addEventListener("click", closePopup);
+    el("tut-wrong-ok").addEventListener("click", function () { onPopupOk(); });
     // Undo the moves of the current board step (e.g. after pressing the wrong arrow).
     el("tut-restart").addEventListener("click", function () {
         window.dispatchEvent(new CustomEvent("practice-restore"));

@@ -11,7 +11,7 @@ few rounds.
 """
 
 # When False, the four tutorial pages before pairing are omitted.
-INCLUDE_TUTORIAL = True
+INCLUDE_TUTORIAL = False
 
 START_MOVES = 40  # move bank at the start of the game
 INITIAL_FOOD = 10  # food each participant starts with

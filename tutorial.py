@@ -332,8 +332,6 @@ def moving_tutorial() -> ModularPage:
             out_of_moves="You ran out of moves, so this step starts again. The food is in the "
             "<strong>centre</strong> of the cave.",
             hint="Food only shows up in your torchlight. Head for the middle of the board.",
-            explanation="Food only shows up in your torchlight. Each step uses one move. You "
-            "always see the trails.",
         ),
         board_step(
             f"me.coins >= {share(pocket)}",
@@ -360,7 +358,7 @@ def moving_tutorial() -> ModularPage:
             # conclusion from play (Thomas, 3-nov).
             popup_title="Stage 2 of 3: search for food",
             popup="The other pac-man is another player: here the computer, in the game another "
-            "person. Eat as much food as you can. The stage ends when all the food is gone. "
+            "person. Use your moves wisely to collect as much food as possible. The stage ends when all the food is gone or when there are no more available moves. "
             "A grey gem marks food that has been eaten.",
             wrong_title="Keep searching",
             wrong="The stage ends when all the food is gone.",
@@ -413,8 +411,8 @@ def moving_tutorial() -> ModularPage:
                 "coins": _coins(split_food),
             },
             popup_title="Stage 3 of 3: search again",
-            popup="Search for food again. Eat as much food as you can. The stage ends when all "
-            "the food is gone.",
+            popup="Search for food again. Use your moves wisely to collect as much food as possible. "
+            "The stage ends when all the food is gone or when there are no more available moves.",
             wrong_title="Keep searching",
             wrong="The stage ends when all the food is gone.",
             food_gone="All the food is gone. You collected <strong>{you}</strong> and the other "
@@ -486,8 +484,8 @@ def contract_tutorial() -> ModularPage:
     other_you, other_partner = 8, 15  # second example: your partner collected more
     prompt = Prompt(Markup(f"""
         <h3>Tutorial 3 of 3: group contribution</h3>
-        <p>In this panel, you can set the percentage of your harvest that will go to the
-        <strong>common pool</strong>. The pool is then divided equally between the players.</p>
+        <p>In this panel, you will see the value of the Group contribution tax. When set to 0%,
+        every player keeps their loot. If set to 100%, all players share the loot in equal parts.</p>
         {split_scene("tut-scene", "tut-contract", you, partner, 0, whole=True, caption=False)}
         <div class="slider-name">Group contribution: <strong id="tut-contract-pct">0%</strong></div>
         {range_input("tut-contract", 1, 0.01, 0)}
@@ -525,6 +523,11 @@ def contract_tutorial() -> ModularPage:
             window["tut-scene"].set(s.reveal, true);
         }});
         </script>
+        <div class="learn-more">
+            <h4>Learn more about Group Contribution</h4>
+            <img src="/static/group_contribution.jpg" alt="At 25% group contribution, part of each player's points is pooled and split equally.">
+            <p>Group contribution takes the set percentage from each player's loot, splits it equally, and redistributes it to everyone.</p>
+        </div>
     """))
 
     steps = [

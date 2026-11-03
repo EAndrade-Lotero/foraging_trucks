@@ -10,7 +10,7 @@ from psynet.bot import Bot, BotDriver
 from psynet.modular_page import ModularPage, Prompt, SliderControl
 from psynet.page import InfoPage, WaitPage
 from psynet.participant import Participant
-from psynet.sync import GroupBarrier, SimpleGrouper
+from psynet.sync import GroupBarrier
 from psynet.timeline import CodeBlock, PageMaker, Timeline, conditional, join
 from psynet.trial.static import StaticNode, StaticTrial, StaticTrialMaker
 
@@ -18,7 +18,6 @@ from .foraging import (
     FORAGING_DURATION,
     GRID_SIZE,
     MAPS_DIR,
-    MIN_PLAYERS,
     PLAYER_COLORS,
     ROUND_TERRAINS,
     EnableForaging,
@@ -27,18 +26,34 @@ from .foraging import (
     patch_dallinger_sockets,
 )
 from .game_parameters import (
+    BASE_GROUP_SIZE,
     CONTRACT_BLOCK,
     FOOD_MOVES,
     INCLUDE_TUTORIAL,
     INITIAL_FOOD,
     MAX_MOVES,
+    MIN_GROUP_SIZE,
     N_ROUNDS,
     FOOD_CONVERSION,
     SOLO_FOOD_FACTOR,
-    SOLO_MAX_ROUNDS,
     STALE_FOOD,
+    START_CONTRACT,
     START_MOVES,
 )
+from .grouping import (
+    CompletedEndLogic,
+    ForagingQuorumGrouper,
+    Quorum,
+    QuorumWaitEndLogic,
+)
+from .pairing import (
+    CREW_GROUP,
+    assign_round_pairs,
+    finish_round,
+    proposes_this_round,
+    record_pair_contract,
+)
+from .waiting import with_waiting_pages
 from .tutorial import (
     CONTRACT_ENDS,
     buying_moves_tutorial,
@@ -49,13 +64,11 @@ from .tutorial import (
 )
 
 
-GROUP_TYPE = "crew"
+GROUP_TYPE = CREW_GROUP
 
 # Economy (game_parameters.py): everything is counted in moves. Players invest moves from their
 # bank, collect points (each worth FOOD_CONVERSION moves), the contract shares the points, and food
 # is paid. A player whose bank reaches zero is out; their partner plays on alone.
-START_CONTRACT = 0.0  # 0 = commission (keep your points), 1 = wages (equal split)
-
 TUTORIAL_SECONDS = 30
 MOVES_SECONDS = 20
 SCORE_SECONDS = 20
@@ -221,8 +234,8 @@ def partner_gone(participant: Participant) -> str:
 
 
 def left_game(participant: Participant) -> bool:
-    """Taken out of the pair for being away too long (see PARTNER_TIMEOUT_SECONDS)."""
-    return GROUP_TYPE not in participant.active_sync_groups and not is_out(participant)
+    """Taken out of the group for being away too long (see PARTNER_TIMEOUT_SECONDS)."""
+    return bool(participant.var.get("left_game", False))
 
 
 def in_game(participant: Participant) -> bool:
@@ -243,9 +256,30 @@ def if_playing(make_page):
     return lambda participant: make_page(participant) if in_game(participant) else game_ended_page()
 
 
+def note_if_kicked(participant: Participant):
+    """A partner-timeout removes the player from the pair. Take them out of the quorum too.
+
+    Sitting a round out also leaves them without a pair. That is not a kick.
+    """
+    if is_out(participant) or participant.var.get("sitting_out", False):
+        return
+    if GROUP_TYPE in participant.active_sync_groups:
+        return
+    quorum = participant.active_sync_groups.get(Quorum.GROUP)
+    if quorum is None:
+        return
+    participant.var.set("left_game", True)
+    quorum.remove_participant(participant)
+
+
 def notice_if_alone(participant: Participant):
     """If the partner was taken out between rounds, play this round alone (and say so)."""
-    if in_game(participant) and not is_solo(participant) and len(crew(participant).participants) == 1:
+    if (
+        in_game(participant)
+        and not is_solo(participant)
+        and GROUP_TYPE in participant.active_sync_groups
+        and len(crew(participant).participants) == 1
+    ):
         participant.var.set("partner_out_round", len(results(participant)) + 1)
         participant.var.set("partner_left", True)
 
@@ -257,8 +291,14 @@ def store_investment(participant: Participant):
     participant.var.set("invested", spent * FOOD_CONVERSION)
 
 
-def solo_rounds(participant: Participant) -> int:
-    return sum(1 for r in results(participant) if r["solo"])
+def _players_still_in(quorum) -> int:
+    """Quorum members who can still be paired."""
+    return sum(
+        1
+        for person in quorum.active_participants
+        if person.var.get("out_round", None) is None
+        and not person.var.get("left_game", False)
+    )
 
 
 def score_round(group, participants, participant, barrier):
@@ -304,13 +344,23 @@ def score_round(group, participants, participant, barrier):
         if not has_food_to_continue(p):
             p.var.set("out_round", len(results(p)))
             group.remove_participant(p)  # the partner plays on alone (min_group_size is 1)
+            quorum = p.active_sync_groups.get(Quorum.GROUP)
+            if quorum is not None:
+                quorum.remove_participant(p)
             for q in players:
                 if q.id != p.id and has_food_to_continue(q):
                     q.var.set("partner_out_round", len(results(q)))
 
 
 def average_proposals(group, participants, participant, barrier):
-    """Runs when both players have proposed: the next contract is their average."""
+    """Runs when both players have proposed: the next contract is their average.
+
+    Each pair's agreement is also folded into the quorum contract, which the
+    next round's pairs start from.
+    """
+    if group.var.get("proposal_barrier", None) == barrier.id:
+        return
+    group.var.set("proposal_barrier", barrier.id)
     proposals = [
         _as_float(last_valid_answer(p, "propose_contract"), None) for p in participants
     ]
@@ -322,7 +372,9 @@ def average_proposals(group, participants, participant, barrier):
         participants[0].var.set("partner_left", True)
     if proposals:
         # The exact average (it can fall between the slider's 10% marks, e.g. 5%).
-        group.var.set("contract", sum(proposals) / len(proposals))
+        agreed = sum(proposals) / len(proposals)
+        group.var.set("contract", agreed)
+        record_pair_contract(participants[0], agreed)
 
 
 CONTRACT_STEPS = 11  # 0%, 10%, ..., 100% group contribution
@@ -418,8 +470,9 @@ def buy_moves_page(participant: Participant, round_index: int) -> ModularPage:
     solo = ""
     if is_solo(participant):
         solo = (
-            f"<p>Your partner {partner_gone(participant)}, so you play <strong>alone</strong>. "
-            f"You can play at most {SOLO_MAX_ROUNDS - solo_rounds(participant)} more rounds.</p>"
+            f"<p>Your partner {partner_gone(participant)}, so you play <strong>alone</strong> "
+            "this round. If the group still has enough players, you are paired again "
+            "next round.</p>"
         )
     if top <= 0:
         # SliderControl rejects max == min, so the control stays submittable but hidden.
@@ -530,10 +583,11 @@ def score_page(participant: Participant) -> InfoPage:
         """
     if is_out(participant):
         tail = """<p class="out-note"><strong>You do not have enough food to continue: you are out of the game.</strong>
-                  """ + ("" if r["solo"] else "Your partner continues alone.") + "</p>"
+                  """ + ("" if r["solo"] else " The others keep playing.") + "</p>"
     elif participant.var.get("partner_out_round", None) == r["round"]:
-        tail = f"""<p class="out-note"><strong>Your partner {partner_gone(participant)}.</strong> From now on
-                   you play alone, for at most {SOLO_MAX_ROUNDS} more rounds.</p>"""
+        tail = f"""<p class="out-note"><strong>Your partner {partner_gone(participant)}.</strong>
+                   You play this round alone. If the group still has enough players, you are
+                   paired again next round.</p>"""
     else:
         tail = ""
     return InfoPage(
@@ -587,8 +641,14 @@ def summary_page(participant: Participant) -> InfoPage:
         for r in results(participant)
     )
     final = INITIAL_FOOD + sum(round_food(r) for r in results(participant))
+    quorum = Quorum.for_participant(participant)
+    ended_early = participant.var.get("ended_early") == "group_too_small" or (
+        quorum is not None and quorum.var.get("ended_early") == "group_too_small"
+    )
     if is_out(participant):
         how = f"You ran out of food in round {participant.var.get('out_round')}."
+    elif ended_early:
+        how = "The group became too small to keep playing, so the game ended early."
     elif left_game(participant):
         how = ("You were away from the game for too long, so it ended for you and your "
                "partner continued alone.")
@@ -615,7 +675,18 @@ def summary_page(participant: Participant) -> InfoPage:
 
 def proposes_after(round_index: int) -> bool:
     """A new contract is proposed after each block of CONTRACT_BLOCK rounds (not after the last)."""
-    return (round_index + 1) % CONTRACT_BLOCK == 0 and round_index + 1 < N_ROUNDS
+    return proposes_this_round(round_index)
+
+
+def sit_out_page(participant: Participant) -> InfoPage:
+    """Shown to a player who has no partner for this round."""
+    quorum = Quorum.for_participant(participant)
+    if quorum is not None and quorum.var.get("ended_early"):
+        text = "The group no longer has enough players, so the game ends here."
+    else:
+        text = ("You are sitting this round out. You will be paired again when "
+                "the next round starts.")
+    return InfoPage(Markup(f"<h3>This round</h3><p>{text}</p>"), time_estimate=5)
 
 
 class ForagingTrucksTrial(StaticTrial):
@@ -630,66 +701,81 @@ class ForagingTrucksTrial(StaticTrial):
             # trial maker then ends their game (ForagingTrialMaker.game_over).
             return conditional(f"{label}_{round_index}", in_game, join(*elts))
 
-        # Barrier IDs are scoped by node: both players share it, and each round has its own.
+        # Barrier IDs are scoped by node: a pair shares them, and each round has its own.
+        # The round starts by pairing the quorum. A player with no partner sits it out
+        # and meets the others again at the quorum's barrier between rounds.
         return join(
-            playing(
-                CodeBlock(notice_if_alone),
-                PageMaker(
-                    if_playing(lambda participant: buy_moves_page(participant, round_index)),
-                    time_estimate=MOVES_SECONDS,
-                ),
-                CodeBlock(store_investment),
-                label="invest",
-            ),
-            crew_barrier(
-                f"moves_{self.node_id}",
-                "Waiting for your partner to finish investing food...",
-            ),
-            playing(
-                PageMaker(
-                    if_playing(lambda participant: ForagingPage(
-                        participant,
-                        round_id=self.node_id,
-                        moves=participant.var.get("invested", 0),
-                        title=f"<h3>Round {round_index + 1} of {N_ROUNDS}: collect points</h3>",
-                        terrain=ROUND_TERRAINS[round_index % len(ROUND_TERRAINS)],
-                    )),
-                    time_estimate=FORAGING_DURATION,
-                ),
-                label="forage",
-            ),
-            crew_barrier(
-                f"foraging_{self.node_id}",
-                "Waiting for your partner to finish the round...",
-                on_release=score_round,
-            ),
+            CodeBlock(lambda participant: assign_round_pairs(participant, round_index)),
             conditional(
-                f"score_{round_index}",
-                lambda participant: not left_game(participant),
-                PageMaker(score_page, time_estimate=SCORE_SECONDS),
-            ),
-            # Players who are out, alone or gone do not propose (and must not wait at a barrier).
-            conditional(
-                f"propose_{round_index}",
-                lambda participant: (
-                    proposes_after(round_index)
-                    and in_game(participant)
-                    and not is_solo(participant)
-                ),
+                f"sit_{round_index}",
+                lambda participant: bool(participant.var.get("sitting_out", False)),
+                PageMaker(sit_out_page, time_estimate=5),
                 join(
-                    PageMaker(if_playing(propose_contract_page), time_estimate=CONTRACT_SECONDS),
+                    playing(
+                        CodeBlock(notice_if_alone),
+                        PageMaker(
+                            if_playing(lambda participant: buy_moves_page(participant, round_index)),
+                            time_estimate=MOVES_SECONDS,
+                        ),
+                        CodeBlock(store_investment),
+                        label="invest",
+                    ),
                     crew_barrier(
-                        f"proposal_{self.node_id}",
-                        "Waiting for your partner's proposal...",
-                        on_release=average_proposals,
+                        f"moves_{self.node_id}",
+                        "Waiting for your partner to finish investing food...",
+                    ),
+                    CodeBlock(note_if_kicked),
+                    playing(
+                        PageMaker(
+                            if_playing(lambda participant: ForagingPage(
+                                participant,
+                                round_id=self.node_id,
+                                moves=participant.var.get("invested", 0),
+                                title=f"<h3>Round {round_index + 1} of {N_ROUNDS}: collect points</h3>",
+                                terrain=ROUND_TERRAINS[round_index % len(ROUND_TERRAINS)],
+                            )),
+                            time_estimate=FORAGING_DURATION,
+                        ),
+                        label="forage",
+                    ),
+                    crew_barrier(
+                        f"foraging_{self.node_id}",
+                        "Waiting for your partner to finish the round...",
+                        on_release=score_round,
+                    ),
+                    CodeBlock(note_if_kicked),
+                    conditional(
+                        f"score_{round_index}",
+                        lambda participant: not left_game(participant),
+                        PageMaker(score_page, time_estimate=SCORE_SECONDS),
+                    ),
+                    # Players who are out, alone or gone do not propose (and must not wait at a barrier).
+                    conditional(
+                        f"propose_{round_index}",
+                        lambda participant: (
+                            proposes_after(round_index)
+                            and in_game(participant)
+                            and not is_solo(participant)
+                            and not participant.var.get("sitting_out", False)
+                        ),
+                        join(
+                            PageMaker(if_playing(propose_contract_page), time_estimate=CONTRACT_SECONDS),
+                            crew_barrier(
+                                f"proposal_{self.node_id}",
+                                "Waiting for your partner's proposal...",
+                                on_release=average_proposals,
+                            ),
+                            CodeBlock(note_if_kicked),
+                        ),
                     ),
                 ),
             ),
+            CodeBlock(lambda participant: finish_round(participant, round_index)),
         )
 
 
 class ForagingTrialMaker(StaticTrialMaker):
-    """Stops a player's rounds when they are out, or after SOLO_MAX_ROUNDS rounds alone."""
+    """Stops a player's rounds when they are out, or when the group falls below the minimum."""
 
     def compile_elts(self):
         # StaticTrialMaker does not pass sync_group_max_wait_time on, and its default (45 s)
@@ -699,11 +785,19 @@ class ForagingTrialMaker(StaticTrialMaker):
 
     @staticmethod
     def game_over(participant: Participant) -> bool:
-        return (
-            is_out(participant)
-            or left_game(participant)
-            or solo_rounds(participant) >= SOLO_MAX_ROUNDS
-        )
+        if participant.var.get("ended_early") == "group_too_small":
+            return True
+        quorum = participant.active_sync_groups.get(Quorum.GROUP)
+        if (
+            quorum is not None
+            and quorum.var.get("game_opened")
+            and _players_still_in(quorum) < MIN_GROUP_SIZE
+        ):
+            quorum.var.set("ended_early", "group_too_small")
+            for person in quorum.active_participants:
+                person.var.set("ended_early", "group_too_small")
+            return True
+        return is_out(participant) or left_game(participant)
 
     def prepare_trial(self, experiment, participant):
         if self.game_over(participant):
@@ -724,7 +818,9 @@ trial_maker = ForagingTrialMaker(
     max_trials_per_participant=N_ROUNDS,
     recruit_mode="n_participants",
     target_n_participants=20,
-    sync_group_type=GROUP_TYPE,
+    # The whole quorum advances a round together. Within a round, pair barriers
+    # use the crew group assigned for that round.
+    sync_group_type=Quorum.GROUP,
     # Between rounds PsyNet waits for the pair at its own barrier: same rule as ours.
     sync_group_timeout=PARTNER_TIMEOUT_SECONDS,
     sync_group_timeout_action="kick",
@@ -767,23 +863,28 @@ class Exp(psynet.experiment.Experiment):
             Markup(
                 f"""
                 <h3>Welcome</h3>
-                <p>In this game you team up with another player to collect food.</p>
+                <p>In this game you collect food with other players. Each round you are
+                paired with one of them.</p>
                 <ul>
                     <li><strong>Your partner is a real person</strong> playing at the same
                     time as you."""
                 + (" In the practice tutorials the computer plays your partner, and the "
                    "practice does not count." if INCLUDE_TUTORIAL else "")
-                + """</li>
+                + f"""</li>
+                    <li>The game waits until {BASE_GROUP_SIZE} players are ready. It can
+                    start earlier, once {MIN_GROUP_SIZE} players have been waiting.</li>
+                    <li>Each round the group is paired at random. If the numbers are odd,
+                    one player sits that round out and rejoins on the next round.</li>
                 </ul>
                 """
                 + (
                     """
-                <p>First, three short tutorials show you how to play. Then we pair you
-                with a partner.</p>
+                <p>First, three short tutorials show you how to play. Then you wait
+                for the group.</p>
                 """
                     if INCLUDE_TUTORIAL
                     else """
-                <p>Next we pair you with a partner, and then the game starts.</p>
+                <p>Next you wait for the group, and then the game starts.</p>
                 """
                 )
             ),
@@ -799,26 +900,21 @@ class Exp(psynet.experiment.Experiment):
             if INCLUDE_TUTORIAL
             else []
         ),
-        SimpleGrouper(
-            GROUP_TYPE,
-            initial_group_size=MIN_PLAYERS,
-            min_group_size=1,  # after a partner leaves or runs out, the other plays on alone
-            # Pairs form only from players waiting together: PsyNet would otherwise let a new
-            # player join any group with room, including one whose partner ran out of food.
-            join_existing_groups=False,
-            max_wait_time=PARTNER_WAIT_SECONDS,
-            waiting_logic=wait_page(
-                "Waiting for a partner to join you. Please keep this page open; "
-                "the game starts as soon as another player is ready. "
-                f"If nobody joins within {PARTNER_WAIT_SECONDS // 60} minutes, the study ends "
-                "and you are paid for the time you spent."
+        with_waiting_pages(
+            ForagingQuorumGrouper.build(
+                BASE_GROUP_SIZE,
+                Quorum.BARRIER_ID,
             ),
+            trial_maker,
+            PageMaker(summary_page, time_estimate=10),
         ),
-        trial_maker,
-        PageMaker(summary_page, time_estimate=10),
+        successful_end=CompletedEndLogic(),
+        unsuccessful_end=QuorumWaitEndLogic(),
     )
 
-    test_n_bots = 2
+    initial_recruitment_size = BASE_GROUP_SIZE
+    # Two bots still exercise the game: the lobby short-starts at MIN_GROUP_SIZE.
+    test_n_bots = MIN_GROUP_SIZE
 
     def test_serial_run_bots(self, bots: List[BotDriver]):
         # The bots have to advance in lockstep, otherwise the first bot would sit at

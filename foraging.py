@@ -243,9 +243,21 @@ def spawn_position(room_id: str, index: int) -> tuple:
     return (corners + SPAWN_POSITIONS[4:])[index]
 
 
+def pair_group(participant: Participant):
+    """The pair playing this round.
+
+    A participant is also in the quorum, so ``participant.sync_group`` cannot
+    be used: it raises when more than one group is active.
+    """
+    return participant.active_sync_groups.get("crew")
+
+
 def active_participant_ids(participant: Participant) -> List[int]:
+    group = pair_group(participant)
+    if group is None:
+        return [participant.id]
     return sorted(
-        p.id for p in participant.sync_group.participants if not p.failed
+        p.id for p in group.participants if not p.failed
     )[:MAX_PLAYERS]
 
 
@@ -294,8 +306,8 @@ class EnableForaging(NullElt, WebSocketElt):
             return
 
         msg_type = data.get("type")
-        if participant is not None and participant.sync_group is None:
-            return  # no longer in a pair (out of moves or taken out): nothing to play
+        if participant is not None and pair_group(participant) is None:
+            return  # no longer in a pair (sitting out, out of food, or taken out)
 
         if msg_type in ("join_room", "request_state"):
             if participant is not None:
@@ -562,7 +574,7 @@ class ForagingPage(ModularPage):
         # The room ID must be shared by the whole sync group, otherwise each
         # participant would forage alone in their own room. The node ID is shared
         # because followers are assigned the leader's node, while the trial ID is not.
-        room_id = f"foraging_{participant.sync_group.id}_{round_id}"
+        room_id = f"foraging_{pair_group(participant).id}_{round_id}"
         known_players = known_players_for_group(participant, room_id)
         super().__init__(
             label="foraging_page",

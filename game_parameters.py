@@ -14,6 +14,7 @@ few rounds.
 INCLUDE_TUTORIAL = False
 
 START_MOVES = 40  # move bank at the start of the game
+START_CONTRACT = 0.0  # 0 = commission (keep your points), 1 = wages (equal split)
 INITIAL_FOOD = 10  # food each participant starts with
 STALE_FOOD = 2  # food lost at the start of every round, before investing
 MAX_MOVES = 60  # most moves a player can invest in one round (option b, 12-oct)
@@ -25,6 +26,36 @@ FOOD_MOVES = 8  # moves paid for food every round
 
 N_ROUNDS = 10
 CONTRACT_BLOCK = 5  # rounds played with the same contract before proposing a new one
+
+# Lobby. The game waits for BASE_GROUP_SIZE players, or starts earlier once at
+# least MIN_GROUP_SIZE active players have each moved through
+# JUMP_START_WAITING_PAGES lobby pages. Each round pairs them at random.
+# Someone left over sits the round out. A started game that falls below
+# MIN_GROUP_SIZE ends, and those players continue to the results page.
+BASE_GROUP_SIZE = 4
+MIN_GROUP_SIZE = 2
+JUMP_START_WAITING_PAGES = 4
+
+# When False, a newcomer cannot join a quorum that has already opened the
+# game. They wait for a new group. A quorum still filling in the lobby can
+# still grow. When True, a newcomer can join until fewer than
+# MIN_ROUNDS_LEFT_FOR_TOP_UP of the rounds are left. The round in progress
+# counts as left.
+ALLOW_JOIN_WORKING_GROUPS = True
+MIN_ROUNDS_LEFT_FOR_TOP_UP = 0.3
+
+# How long, in seconds, a participant may wait in the lobby before they are
+# failed and sent to the end of the experiment.
+MAX_WAIT_TIME = 300
+
+# Seconds on one lobby page. The page advances on its own after this long.
+# A lobby member counts as active for UNRESPONSIVE_WAITING_PAGES of these.
+WAITING_TRIAL_TIME_ESTIMATE = 8
+UNRESPONSIVE_WAITING_PAGES = 4
+
+# Successful and unsuccessful end screens continue on their own.
+END_PAGE_SECONDS = 3
+INTRO_PAGE_TIME_ESTIMATE = 5
 
 # A player whose bank reaches zero is out. Their partner keeps playing alone, without a
 # contract, for at most SOLO_MAX_ROUNDS more rounds, and alone food costs SOLO_FOOD_FACTOR

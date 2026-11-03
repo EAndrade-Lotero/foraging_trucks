@@ -629,8 +629,8 @@ def summary_page(participant: Participant) -> InfoPage:
     )
     final = INITIAL_FOOD + sum(round_food(r) for r in results(participant))
     quorum = Quorum.for_participant(participant)
-    ended_early = participant.var.get("ended_early") == "group_too_small" or (
-        quorum is not None and quorum.var.get("ended_early") == "group_too_small"
+    ended_early = participant.var.get("ended_early", None) == "group_too_small" or (
+        quorum is not None and quorum.var.get("ended_early", None) == "group_too_small"
     )
     if is_out(participant):
         how = f"You ran out of food in round {participant.var.get('out_round')}."
@@ -668,7 +668,7 @@ def proposes_after(round_index: int) -> bool:
 def sit_out_page(participant: Participant) -> InfoPage:
     """Shown to a player who has no partner for this round."""
     quorum = Quorum.for_participant(participant)
-    if quorum is not None and quorum.var.get("ended_early"):
+    if quorum is not None and quorum.var.get("ended_early", None):
         text = "The group no longer has enough players, so the game ends here."
     else:
         text = ("You are sitting this round out. You will be paired again when "
@@ -766,12 +766,12 @@ class ForagingTrialMaker(StaticTrialMaker):
 
     @staticmethod
     def game_over(participant: Participant) -> bool:
-        if participant.var.get("ended_early") == "group_too_small":
+        if participant.var.get("ended_early", None) == "group_too_small":
             return True
         quorum = participant.active_sync_groups.get(Quorum.GROUP)
         if (
             quorum is not None
-            and quorum.var.get("game_opened")
+            and quorum.var.get("game_opened", False)
             and _players_still_in(quorum) < MIN_GROUP_SIZE
         ):
             quorum.var.set("ended_early", "group_too_small")

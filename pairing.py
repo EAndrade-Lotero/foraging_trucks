@@ -160,7 +160,7 @@ def assign_round_pairs(participant: Participant, round_index: int) -> None:
         if not in_crew and not sitting:
             _sit_out(participant)
         return
-    if locked.var.get("ended_early"):
+    if locked.var.get("ended_early", None):
         _sit_out(participant)
         return
 
@@ -184,8 +184,8 @@ def assign_round_pairs(participant: Participant, round_index: int) -> None:
             _leave_crew(person)
         return
 
-    counts = dict(locked.var.get("sit_out_counts") or {})
-    previous_sitting = list(locked.var.get("previous_sitting_out") or [])
+    counts = dict(locked.var.get("sit_out_counts", None) or {})
+    previous_sitting = list(locked.var.get("previous_sitting_out", None) or [])
     pairs, sitters = match_players(
         eligible,
         sit_out_counts=counts,
@@ -259,7 +259,7 @@ def record_pair_contract(participant: Participant, agreed: float) -> None:
     )
     if locked is None:
         return
-    recorded = list(locked.var.get("round_contracts") or [])
+    recorded = list(locked.var.get("round_contracts", None) or [])
     recorded.append(float(agreed))
     locked.var.set("round_contracts", recorded)
     locked.var.set("contract", sum(recorded) / len(recorded))
@@ -268,7 +268,7 @@ def record_pair_contract(participant: Participant, agreed: float) -> None:
 def finish_round(participant: Participant, round_index: int) -> None:
     """Record who this round was played with, then clear the pair until the next one."""
     partner_id = Pair.current(participant)
-    history = list(participant.var.get("round_history") or [])
+    history = list(participant.var.get("round_history", None) or [])
     history.append({"partner_id": partner_id, "skipped": partner_id is None})
     participant.var.set("round_history", history)
     GroupRound.finish(participant, round_index)

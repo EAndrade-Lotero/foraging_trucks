@@ -591,4 +591,7 @@ class ForagingPage(ModularPage):
             control=ForagingControl(),
             time_estimate=FORAGING_DURATION,
             show_next_button=False,
+            # The canvas game installs window listeners and embeds scripts, so
+            # PsyNet must replace the whole document when entering or leaving it.
+            requires_full_page_reload=True,
         )

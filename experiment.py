@@ -67,6 +67,10 @@ CONTRACT_SECONDS = 20
 PARTNER_TIMEOUT_SECONDS = 150
 BARRIER_MAX_WAIT_SECONDS = 300
 BARRIER_EXPECTED_WAIT = 10
+# Longest wait for a partner before the game; after it the study ends (PsyNet fails the
+# participant at the grouper) and they are paid for their time. Prolific asks to say both
+# before the study starts.
+PARTNER_WAIT_SECONDS = 120
 TRIAL_TIME_ESTIMATE = (
     MOVES_SECONDS
     + BARRIER_EXPECTED_WAIT
@@ -744,9 +748,16 @@ class Exp(psynet.experiment.Experiment):
         EnableForaging(),
         InfoPage(
             Markup(
-                """
+                f"""
                 <h3>Welcome</h3>
-                <p>In this game you team up with another player to collect points.</p>
+                <p>In this game you team up with another player to collect food.</p>
+                <ul>
+                    <li><strong>Your partner is a real person</strong> playing at the same
+                    time as you."""
+                + (" In the practice tutorials the computer plays your partner, and the "
+                   "practice does not count." if INCLUDE_TUTORIAL else "")
+                + """</li>
+                </ul>
                 """
                 + (
                     """
@@ -778,10 +789,12 @@ class Exp(psynet.experiment.Experiment):
             # Pairs form only from players waiting together: PsyNet would otherwise let a new
             # player join any group with room, including one whose partner ran out of moves.
             join_existing_groups=False,
-            max_wait_time=120,
+            max_wait_time=PARTNER_WAIT_SECONDS,
             waiting_logic=wait_page(
                 "Waiting for a partner to join you. Please keep this page open; "
-                "the game starts as soon as another player is ready."
+                "the game starts as soon as another player is ready. "
+                f"If nobody joins within {PARTNER_WAIT_SECONDS // 60} minutes, the study ends "
+                "and you are paid for the time you spent."
             ),
         ),
         trial_maker,

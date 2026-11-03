@@ -20,6 +20,10 @@ from .game_parameters import (
 )
 
 TUTORIAL_SECONDS = 60
+# A foraging stage of tutorial 2 passes when the participant collects at least this share of
+# the food: sharing it with the partner is fine, collecting very little means they missed the
+# point (Thomas, 2-nov: "no tiene que ser exactamente la mitad").
+FAIR_SHARE = 0.25
 CONTRACT_ENDS = ("0%<small>group contribution</small>", "100%<small>group contribution</small>")
 
 
@@ -121,7 +125,7 @@ def buying_moves_tutorial() -> ModularPage:
         <strong>Each unit of food is worth {FOOD_CONVERSION} moves.</strong></p>
         <div id="tut-convert" class="scene-box"></div>
         <script src="/static/convert_scene.js"></script>
-        {range_input("tut-moves", bank, 1, 2)}
+        {range_input("tut-moves", bank, 1, 0)}  <!-- starts at 0 (Thomas, 2-nov) -->
         <div id="tut-moves-out" class="live-value"></div>
         {slider_frame("tut-moves", "", "", bank + 1, below="tut-moves-out", values=list(range(bank + 1)))}
 
@@ -202,53 +206,99 @@ def _pawn(x: int, y: int, color: str, moves: int, trajectory: list = None) -> di
                 trajectory=[[x, y]] if trajectory is None else trajectory, connected=True)
 
 
-def _food_toward(corner: tuple, n: int, blocked: set) -> list:
-    """The `n` cells nearest `corner` (Manhattan), skipping blocked cells and the corner itself.
+# A patch shaped like the clusters in the real maps (static/maps/andrade16_map0 and _map1),
+# not a perfect square: 16 food.
+BLOB = [
+    ".##..",
+    "####.",
+    "#####",
+    ".###.",
+    "..##.",
+]
 
-    y grows downward, so (0, 0) is the top left and (size - 1, 0) is the top right.
-    Ties go to the cell closer to that corner along each axis.
-    """
-    cx, cy = corner
-    cells = []
-    for y in range(GRID_SIZE):
-        for x in range(GRID_SIZE):
-            if (x, y) == corner or (x, y) in blocked:
-                continue
-            cells.append((abs(x - cx) + abs(y - cy), abs(y - cy), abs(x - cx), x, y))
-    cells.sort()
-    return [(x, y) for *_, x, y in cells[:n]]
+
+# Stage 2's patch: a 6x6 square without its corners against the right edge (Thomas, 2-nov),
+# 32 food. It is symmetric, so the half facing each player is the same size: the top three
+# rows (16 food) face the participant and the bottom three the partner.
+LOZENGE = [
+    ".####.",
+    "######",
+    "######",
+    "######",
+    "######",
+    ".####.",
+]
+
+
+def _shape(rows: list, x0: int, y0: int) -> list:
+    """The `#` cells of `rows`, with the top-left cell at (x0, y0)."""
+    return [(x0 + x, y0 + y) for y, row in enumerate(rows) for x, c in enumerate(row) if c == "#"]
+
+
+def _blob(x0: int, y0: int, flip: bool = False) -> list:
+    """BLOB with its top-left cell at (x0, y0); `flip` turns it half a turn (point symmetry)."""
+    cells = [(x, y) for y, row in enumerate(BLOB) for x, c in enumerate(row) if c == "#"]
+    side = len(BLOB) - 1
+    if flip:
+        cells = [(side - x, side - y) for x, y in cells]
+    return [(x0 + x, y0 + y) for x, y in cells]
 
 
 def _coins(cells: list) -> list:
     return [{"id": i, "x": x, "y": y} for i, (x, y) in enumerate(cells)]
 
 
+# Tutorial 2's prediction question before stage 3 (Thomas, 2-nov: off for now, to propose to
+# Andrade).
+PREDICTION_QUESTION = False
+
+
 def moving_tutorial() -> ModularPage:
     """Three stages on the real board (Andrade, 13-oct, plus group-foraging practice).
 
-    Stage 1 is the original task: one piece of food in the centre. Stages 2 and 3 are live
-    foraging with a partner bot that walks, one cell at a time, to the closest food. Movement,
+    Stage 1 is the original task, with a cross of five pieces of food in the centre. Stages 2 and 3 are live
+    foraging with a partner bot that walks, one cell at a time, to the closest food (in stage 3,
+    in the patch the participant is not heading to). Movement,
     move cost, edges and collecting match the experiment; the bot simply has no keyboard.
+    The bot waits for the participant's first move, and a stage ends when the food runs out:
+    it passes if the participant collected at least FAIR_SHARE of it, and starts again otherwise.
     """
     moves = 80
     centre = GRID_SIZE // 2
     top_left, top_right = (0, 0), (GRID_SIZE - 1, 0)
-    bottom_left = (0, GRID_SIZE - 1)
+    bottom_left, bottom_right = (0, GRID_SIZE - 1), (GRID_SIZE - 1, GRID_SIZE - 1)
     me = _pawn(1, 1, PLAYER_COLORS[0], moves)
-    partner = _pawn(
-        GRID_SIZE - 2, GRID_SIZE - 2, PLAYER_COLORS[1], 0,
-        trajectory=[[GRID_SIZE - 2, GRID_SIZE - 5 + k] for k in range(4)],
-    )
-    centre_coins = [{"id": 0, "x": centre, "y": centre}]
-    # 40 pieces heaped on the top right; then 20 there and 20 on the bottom left.
-    patch_top_right = _food_toward(top_right, 40, {top_left})
-    split_food = (
-        _food_toward(top_right, 20, {top_left, top_right})
-        + _food_toward(bottom_left, 20, {top_left, top_right})
-    )
+    # Stage 1: a cross of five pieces in the centre (Thomas, 2-nov), all to be collected.
+    cross = [(centre, centre), (centre - 1, centre), (centre + 1, centre),
+             (centre, centre - 1), (centre, centre + 1)]
+    centre_coins = _coins(cross)
+    # Stage 2 (same patch): one patch against the right edge, nearer the other player
+    # (bottom right) than the participant (top left). The other player races for it from the
+    # participant's first move, with no pause; it hurries once the participant finds food
+    # (Thomas, 2-nov): what one of them eats, the other doesn't.
+    # Stage 3 (split): the participant starts bottom left and the partner top right, with a
+    # patch in each of the other two corners; the partner takes the one the participant is
+    # not heading to. Neither popup says where the food is.
+    # Stage 2's patch is symmetric; stage 3's are shaped like the real maps' clusters
+    # (Thomas, 2-nov).
+    pocket = _shape(LOZENGE, GRID_SIZE - 6, GRID_SIZE // 2 - 3)  # x 10..15, y 5..10
+    patches = [top_left, bottom_right]
+    # The two patches are each other turned half a turn about the centre, as are the starts.
+    split_food = _blob(1, 1) + _blob(GRID_SIZE - 6, GRID_SIZE - 6, flip=True)
+    # Stage 3 gives the moves to reach one patch, eat it all and still have slack to explore
+    # that side, but not to reach the other patch afterwards (Thomas, 2-nov): the slack stays
+    # one short of the gap between the two patches.
+    patch_size = len(split_food) // 2
+    near, far = split_food[:patch_size], split_food[patch_size:]
+    reach = min(abs(x - bottom_left[0]) + abs(y - bottom_left[1]) for x, y in split_food)
+    gap = min(abs(x0 - x1) + abs(y0 - y1) for x0, y0 in near for x1, y1 in far)
+    split_moves = reach + patch_size + gap - 1  # 13 + 16 + 11 = 40
+
+    def share(food: list) -> int:
+        return max(1, round(FAIR_SHARE * len(food)))
     prompt = PracticeBoardPrompt(
         """<h3 id="tut-board-title">Tutorial 2 of 3: moving in the cave</h3>""",
-        players={"0": me, "1": partner},
+        players={"0": me},  # stage 1 has no partner yet (Thomas, 2-nov)
         coins=centre_coins,
         moves=moves,
         legend='<div class="board-instruction"><em>Instruction: collect the food in the '
@@ -264,81 +314,124 @@ def moving_tutorial() -> ModularPage:
     )
     search_legend = (
         '<div class="board-instruction"><em>Instruction: search for food.</em></div>'
+        '<div id="practice-score" class="practice-score" aria-live="polite"></div>'
     )
     steps = [
         board_step(
-            f"me.x === {centre} && me.y === {centre}",
+            f"me.coins >= {len(cross)}",
             text="Collect the food in the centre of the cave.",
             heading="Tutorial 2 of 3: moving in the cave",
             legend=centre_legend,
-            setup={"players": {"0": me, "1": partner}, "coins": centre_coins},
+            setup={"players": {"0": me}, "coins": centre_coins},
             popup_title="Stage 1 of 3: find the food",
             popup="You are the pac-man with the <strong>white ring</strong>. There is food in "
-            "the <strong>centre</strong> of the cave: go and collect it. Use the arrow keys "
+            "the <strong>centre</strong> of the cave: go and collect all of it. Use the arrow keys "
             "(&uarr; &darr; &larr; &rarr;) or W, A, S, D.",
-            wrong_title="You've not found the food",
+            wrong_title="You've not collected all the food",
             wrong="It is in the <strong>centre</strong> of the cave.",
             out_of_moves="You ran out of moves, so this step starts again. The food is in the "
             "<strong>centre</strong> of the cave.",
             hint="Food only shows up in your torchlight. Head for the middle of the board.",
             explanation="Food only shows up in your torchlight. Each step uses one move. You "
-            "always see your partner and both trails.",
+            "always see the trails.",
         ),
         board_step(
-            "me.coins >= 1",
+            f"me.coins >= {share(pocket)}",
             text="Search for food.",
-            heading="Tutorial 2 of 3: foraging together",
+            heading="Tutorial 2 of 3",
             legend=search_legend,
             bot="1",
+            # Slower than stage 3's partner (Thomas, 2-nov): at 400 ms someone pressing a key
+            # every half second could not reach the share; at 650 ms they can up to ~700 ms a key.
+            bot_ms=650,
+            # Once the participant finds food too, the other player hurries (Thomas, 3-nov).
+            # Simulated naive players still reach the share at up to ~700 ms a key.
+            bot_race_ms=450,
+            scoreboard={"other": "Other player"},  # no "Food left" (Thomas, 3-nov)
+            until_food_gone=True,
             setup={
                 "players": {
                     "0": _pawn(*top_left, PLAYER_COLORS[0], moves),
-                    "1": _pawn(*top_right, PLAYER_COLORS[1], moves),
+                    "1": _pawn(*bottom_right, PLAYER_COLORS[1], 999),  # the bot never stops early
                 },
-                "coins": _coins(patch_top_right),
+                "coins": _coins(pocket),
             },
+            # Neutral wording: no "rival" or "partner" and no lesson; the participant draws the
+            # conclusion from play (Thomas, 3-nov).
             popup_title="Stage 2 of 3: search for food",
-            popup="Search for food. The other pac-man is your partner: they always walk to the "
-            "<strong>closest food</strong>, one step at a time, and each step uses one move, "
-            "just as yours do. You start at the <strong>top left</strong>; they start at the "
-            "<strong>top right</strong>. Forty pieces of food are toward the "
-            "<strong>top right</strong>. Collect one.",
+            popup="The other pac-man is another player: here the computer, in the game another "
+            "person. Eat as much food as you can. The stage ends when all the food is gone. "
+            "A grey gem marks food that has been eaten.",
             wrong_title="Keep searching",
-            wrong="The food is toward the <strong>top right</strong>. Walk onto a piece to collect it.",
-            out_of_moves="You ran out of moves before collecting food, so this stage starts again. "
-            "The food is toward the <strong>top right</strong>.",
-            hint="Head for the top right. Food only shows up in your torchlight.",
-            explanation="Your partner was walking to the closest food at the same time. Each step, "
-            "yours and theirs, uses one move.",
+            wrong="The stage ends when all the food is gone.",
+            food_gone="All the food is gone. You collected <strong>{you}</strong> and the other "
+            "player <strong>{partner}</strong>. That was too little to go on, so this stage "
+            "starts again.",
+            out_of_moves="You ran out of moves, so this stage starts again.",
+            hint="Food only shows up in your torchlight.",
+            explanation="You collected <strong>{you}</strong> and the other player "
+            "<strong>{partner}</strong>.",
+            bare=True,
         ),
+        # Prediction before the split stage (Thomas, 2-nov): stage 3 then lets them check it.
+        # Off until Andrade decides whether it is too obvious (PREDICTION_QUESTION).
+        *([dict(
+            type="quiz",
+            progress="Before stage 3",
+            text="<strong>Before the last stage: if you and the other player both go to the "
+            "same patch, how much food can the two of you collect together?</strong>",
+            options=[
+                "About one patch: you share it",
+                "About two patches",
+                "It depends only on how fast you move",
+            ],
+            correct=0,
+            hint="Think of stage 2: what one of you ate, the other didn't.",
+            explanation="Together you can't collect more than the patch holds. Now play: this "
+            "time the other player is your <strong>partner</strong>, and there are two patches.",
+        )] if PREDICTION_QUESTION else []),
         board_step(
-            "me.coins >= 1",
+            # Nearly all of the patch the participant took: leaving up to 3 is fine (Thomas, 2-nov).
+            f"me.coins >= {patch_size - 3}",
             text="Search for food.",
-            heading="Tutorial 2 of 3: two patches of food",
+            heading="Tutorial 2 of 3",
             legend=search_legend,
             bot="1",
+            bot_ms=400,
+            bot_patches=[list(p) for p in patches],
+            # The other player mirrors the participant's moves (half a turn about the centre)
+            # until the participant crosses the middle of the board, then takes the patch
+            # nearest to itself (Thomas, 2 and 3-nov): the lesson is splitting the work.
+            bot_mirror=True,
+            scoreboard={"other": "Other player"},
+            until_food_gone=True,
             setup={
                 "players": {
-                    "0": _pawn(*top_left, PLAYER_COLORS[0], moves),
-                    "1": _pawn(*top_right, PLAYER_COLORS[1], moves),
+                    "0": _pawn(*bottom_left, PLAYER_COLORS[0], split_moves),
+                    "1": _pawn(*top_right, PLAYER_COLORS[1], 999),  # the bot never stops early
                 },
                 "coins": _coins(split_food),
             },
-            popup_title="Stage 3 of 3: two patches",
-            popup="Search for food again. This time there are <strong>20</strong> pieces in the "
-            "<strong>bottom left</strong> and <strong>20</strong> in the <strong>top right</strong>. "
-            "You still start at the <strong>top left</strong> and your partner at the "
-            "<strong>top right</strong>. They still walk to the closest food. Collect one.",
+            popup_title="Stage 3 of 3: search again",
+            popup="Search for food again. Eat as much food as you can. The stage ends when all "
+            "the food is gone.",
             wrong_title="Keep searching",
-            wrong="There is food in the <strong>bottom left</strong> and the <strong>top right</strong>.",
-            out_of_moves="You ran out of moves before collecting food, so this stage starts again. "
-            "There is food in the <strong>bottom left</strong> and the <strong>top right</strong>.",
-            hint="One patch is below you, the other is where your partner started.",
-            explanation="The two patches are not equally close to both of you. Your partner still "
-            "takes the food nearest to them.",
+            wrong="The stage ends when all the food is gone.",
+            food_gone="All the food is gone. You collected <strong>{you}</strong> and the other "
+            "player <strong>{partner}</strong>. That was too little to go on, so this stage "
+            "starts again.",
+            out_of_moves="You ran out of moves. You collected <strong>{you}</strong> and the other "
+            "player <strong>{partner}</strong>. That was too little to go on, so this stage "
+            "starts again.",
+            hint="Food only shows up in your torchlight.",
+            explanation="You collected <strong>{you}</strong> and the other player "
+            "<strong>{partner}</strong>.",
+            bare=True,
         ),
     ]
-    return tutorial_page("tutorial_board", prompt, steps, bare=True, progress_label="Stage")
+    # Board steps drop the box; the prediction question between them shows it.
+    steps[0]["bare"] = True
+    return tutorial_page("tutorial_board", prompt, steps, progress_label="Stage")
 
 
 def split_scene(scene_id: str, slider_id: str, you: int, partner: int, contract: float,

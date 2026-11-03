@@ -100,6 +100,26 @@
         line-height: 1.45;
     }
 
+    /* Live scoreboard of a tutorial foraging stage (updatePracticeScore). */
+    .practice-score {
+        display: flex;
+        justify-content: center;
+        gap: 1.6rem;
+        margin-top: 0.4rem;
+        font-size: 1.05rem;
+        color: #212529;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .practice-score-dot {
+        display: inline-block;
+        width: 0.7em;
+        height: 0.7em;
+        border-radius: 50%;
+        margin-right: 0.35em;
+        vertical-align: baseline;
+    }
+
     #foraging-moves {
         justify-self: start;
         display: flex;
@@ -666,6 +686,28 @@
         if (movesEl) {
             movesEl.classList.toggle("empty", left <= 0);
         }
+        updatePracticeScore();
+    }
+
+    // Tutorial foraging stages show a live scoreboard under the board (`scoreboard` on the
+    // step): "left" counts the food still on the board (one patch, competing for it),
+    // "total" what the two players collected together (two patches, splitting up).
+    var practiceScore = null;
+    function updatePracticeScore() {
+        var el = document.getElementById("practice-score");
+        if (!el || !practiceScore) return;
+        var players = localState.players || {};
+        var me = players[MY_ID], other = players[practiceScore.bot];
+        var mine = me ? me.coins : 0, theirs = other ? other.coins : 0;
+        function cell(label, value, color) {
+            var dot = color ? '<span class="practice-score-dot" style="background:' + color + '"></span>' : "";
+            return '<span>' + dot + label + ' <strong>' + value + '</strong></span>';
+        }
+        // A third column only when the step asks for it (Thomas, 3-nov: no "Food left").
+        var last = practiceScore.show === "total" ? cell("Together", mine + theirs)
+            : practiceScore.show === "left" ? cell("Food left", (localState.coins || []).length) : "";
+        el.innerHTML = cell("You", mine, me && me.color)
+            + cell(practiceScore.other, theirs, other && other.color) + last;
     }
 
     function sendMessage(payload) {
@@ -871,10 +913,54 @@
     var practiceBotId = null;
     var botClock = null;
     var BOT_STEP_MS = 250;  // a steady walk; a held key still moves the participant faster
+    var botStepMs = BOT_STEP_MS;
+    // The bot waits for the participant's first move, so reading the popup costs no food.
+    var botWaiting = true;
+    // Stages with two patches (`bot_patches`, their corners): until the bot eats, it heads for
+    // the patch the participant is farther from, then keeps to that patch while it has food.
+    var botPatches = null;
+    var botPatch = null;
+    // `bot_pause_after`: once the bot has eaten that many, it waits until the participant eats
+    // (or `bot_pause_ms` passes), so they get there and see they are competing for the patch.
+    var botPauseAfter = null;
+    var botPauseMs = null;
+    var botFastMs = null;  // a quicker step while the participant has eaten nothing yet
+    var botRaceMs = null;  // a quicker step once the participant has found food too
+    var botPauseStart = null;
+    // `bot_mirror`: the bot copies the participant's moves turned half a turn about the centre
+    // until the participant crosses the middle of the board (half the board away from where
+    // they started, across or up and down), then takes the patch nearest to itself.
+    var botMirrorUntil = null;
+    var botMirrorFrom = null;  // the participant's start, for "crossed the middle"
+    // `bot_first`: cells the bot eats before any other food (stage 2: the half facing it).
+    var botFirst = null;
     window.addEventListener("practice-enable", function (e) { practiceEnabled = !!e.detail; });
     window.addEventListener("tutorial-step", function (e) {
         var s = e.detail || {};
         practiceBotId = s.bot || null;
+        botStepMs = s.bot_ms || BOT_STEP_MS;
+        botPatches = s.bot_patches || null;
+        botPatch = null;
+        botPauseAfter = s.bot_pause_after || null;
+        botPauseMs = s.bot_pause_ms || null;
+        botFastMs = s.bot_fast_ms || null;
+        botRaceMs = s.bot_race_ms || null;
+        botPauseStart = null;
+        botMirrorUntil = s.bot_mirror || null;
+        botMirrorFrom = null;
+        botFirst = s.bot_first || null;
+        // A question between stages sits under the board: bring it into view.
+        if (s.type === "quiz") {
+            var line = document.querySelector("#foraging-legend .board-instruction");
+            if (line) {
+                line.classList.remove("done");
+                line.innerHTML = "<em>Answer the question below.</em>";
+            }
+            var panel = document.getElementById("tut-panel");
+            if (panel) setTimeout(function () { panel.scrollIntoView({ behavior: "smooth", block: "center" }); }, 50);
+        }
+        practiceScore = s.scoreboard ? { bot: s.bot, other: s.scoreboard.other, show: s.scoreboard.show } : null;
+        botWaiting = true;
         botClock = null;
         if (s.heading) {
             var title = document.getElementById("tut-board-title");
@@ -885,6 +971,9 @@
             if (legend) legend.innerHTML = s.legend;
         }
         if (!s.setup) return;
+        // A stage can start with fewer moves; the bar shows them as a full bar.
+        var start = s.setup.players[MY_ID];
+        if (start) START_MOVES = start.moves_left;
         localState.players = JSON.parse(JSON.stringify(s.setup.players));
         localState.coins = JSON.parse(JSON.stringify(s.setup.coins));
         eaten = {};
@@ -894,6 +983,15 @@
             syncMeshes();
             updateScore();
         }
+    });
+    // A board step that passes turns its instruction green with a check mark.
+    window.addEventListener("tutorial-passed", function (e) {
+        var s = e.detail || {};
+        var line = document.querySelector("#foraging-legend .board-instruction");
+        if (s.type !== "board" || !line) return;
+        line.classList.add("done");
+        // A step's `done` line (the lesson of a foraging challenge) replaces the plain "Done."
+        line.innerHTML = "&#10003; " + (s.done || "Done.") + " Click <strong>Continue</strong>.";
     });
     window.addEventListener("practice-checkpoint", function () {
         // A tutorial step never starts without moves (wandering could spend them all).
@@ -906,9 +1004,27 @@
         var saved = JSON.parse(practiceCheckpoint);
         localState.players = saved.players;
         localState.coins = saved.coins;
+        botPatch = null;
+        botMirrorFrom = null;
+        botPauseStart = null;
+        botWaiting = true;
+        botClock = null;
         syncMeshes();
         updateScore();
     });
+
+    // Tells the tutorial when the last piece of food is gone, whoever collected it.
+    function reportFoodGone() {
+        var me = localState.players[MY_ID], bot = localState.players[practiceBotId];
+        var gone = !(localState.coins || []).length;
+        // A bot that keeps to its own patch leaves the participant's leftovers alone, so the
+        // stage also ends once the participant is out of moves and the bot has nothing to eat.
+        var stuck = !gone && botPatches && me && me.moves_left <= 0 && bot && !botFood(bot);
+        if (!gone && !stuck) return;
+        window.dispatchEvent(new CustomEvent("practice-food-gone", {
+            detail: { me: me, partner_coins: bot ? bot.coins : 0, out_of_moves: !!stuck },
+        }));
+    }
 
     // One step, same rules as the experiment: orthogonal, edges are free, landing on food collects it.
     function practiceMovePlayer(player, dx, dy) {
@@ -929,9 +1045,35 @@
         return true;
     }
 
-    function closestFood(player) {
+    function distance(a, x, y) { return Math.abs(a.x - x) + Math.abs(a.y - y); }
+
+    // The food the bot walks to: the closest, or in a two-patch stage the closest in its patch.
+    function botFood(bot) {
+        if (botFirst) {
+            var first = (localState.coins || []).filter(function (coin) {
+                return botFirst.some(function (c) { return c[0] === coin.x && c[1] === coin.y; });
+            });
+            if (first.length) return closestFood(bot, first);
+        }
+        if (!botPatches) return closestFood(bot);
+        var me = localState.players[MY_ID];
+        if (bot.coins === 0 && me && !botMirrorUntil) {
+            var d0 = distance(me, botPatches[0][0], botPatches[0][1]);
+            var d1 = distance(me, botPatches[1][0], botPatches[1][1]);
+            if (d0 !== d1) botPatch = d0 > d1 ? 0 : 1;
+        }
+        if (botPatch === null) return null;  // the participant has not picked a side yet
+        var mine = botPatches[botPatch], other = botPatches[1 - botPatch];
+        var inPatch = (localState.coins || []).filter(function (coin) {
+            return distance(coin, mine[0], mine[1]) < distance(coin, other[0], other[1]);
+        });
+        // The bot keeps to its own patch: the food left in the participant's is theirs to collect.
+        return inPatch.length ? closestFood(bot, inPatch) : null;
+    }
+
+    function closestFood(player, coins) {
         var best = null, bestKey = null;
-        (localState.coins || []).forEach(function (coin) {
+        (coins || localState.coins || []).forEach(function (coin) {
             var key = [
                 Math.abs(coin.x - player.x) + Math.abs(coin.y - player.y),
                 Math.abs(coin.y - player.y),
@@ -949,9 +1091,17 @@
         return best;
     }
 
-    function stepPracticeBot() {
+    function botPaused(bot, now) {
+        var me = localState.players[MY_ID];
+        if (!botPauseAfter || bot.coins < botPauseAfter || !me || me.coins > 0) return false;
+        if (botPauseStart === null) botPauseStart = now;
+        return !botPauseMs || now - botPauseStart < botPauseMs;
+    }
+
+    function stepPracticeBot(now) {
         var bot = localState.players[practiceBotId];
-        var food = bot && closestFood(bot);
+        if (bot && botPaused(bot, now)) return;
+        var food = bot && botFood(bot);
         if (!food) return;
         var dx = food.x - bot.x, dy = food.y - bot.y;
         if (dx === 0 && dy === 0) return;
@@ -964,10 +1114,11 @@
         if (!moved) return;
         syncMeshes();
         updateScore();
+        reportFoodGone();
     }
 
     function tickPracticeBot(now) {
-        if (!PRACTICE || !practiceEnabled || !practiceBotId || now === null) {
+        if (!PRACTICE || !practiceEnabled || !practiceBotId || botWaiting || now === null) {
             botClock = null;
             return;
         }
@@ -975,18 +1126,46 @@
             botClock = now;
             return;
         }
-        if (now - botClock < BOT_STEP_MS) return;
-        botClock += BOT_STEP_MS;
-        if (now - botClock > BOT_STEP_MS) botClock = now;
-        stepPracticeBot();
+        var me = localState.players[MY_ID];
+        var stepMs = botFastMs && me && me.coins === 0 ? botFastMs
+            : botRaceMs && me && me.coins > 0 ? botRaceMs : botStepMs;
+        if (now - botClock < stepMs) return;
+        botClock += stepMs;
+        if (now - botClock > stepMs) botClock = now;
+        stepPracticeBot(now);
+    }
+
+    // Mirror stages: until the participant has picked a side, the bot copies each move turned
+    // half a turn (so it explores the other half of the board), then takes the other patch.
+    function mirrorBot(me, dx, dy) {
+        if (!botMirrorUntil || !botPatches || botPatch !== null || !practiceBotId) return;
+        var bot = localState.players[practiceBotId];
+        var half = GRID_SIZE / 2;
+        // Past the middle (Thomas, 3-nov), the bot heads for the patch nearest to itself;
+        // on a tie, the one farther from the participant.
+        if (Math.abs(me.x - botMirrorFrom.x) >= half || Math.abs(me.y - botMirrorFrom.y) >= half) {
+            var b0 = distance(bot, botPatches[0][0], botPatches[0][1]);
+            var b1 = distance(bot, botPatches[1][0], botPatches[1][1]);
+            var d0 = distance(me, botPatches[0][0], botPatches[0][1]);
+            var d1 = distance(me, botPatches[1][0], botPatches[1][1]);
+            botPatch = b0 !== b1 ? (b0 < b1 ? 0 : 1) : (d0 > d1 ? 0 : 1);
+            return;
+        }
+        practiceMovePlayer(localState.players[practiceBotId], -dx, -dy);
     }
 
     function practiceMove(dx, dy) {
         if (!practiceEnabled) return;
         var me = localState.players[MY_ID];
+        if (botMirrorUntil && !botMirrorFrom && me) botMirrorFrom = { x: me.x, y: me.y };
         if (!practiceMovePlayer(me, dx, dy)) return;
+        mirrorBot(me, dx, dy);
+        // A mirroring bot only walks on its own once the participant has picked a side.
+        botWaiting = !!botMirrorUntil && botPatch === null;
         syncMeshes();
         updateScore();
+        // Food running out decides a foraging stage before running out of moves does.
+        reportFoodGone();
         window.dispatchEvent(new CustomEvent("practice-move", { detail: me }));
     }
 

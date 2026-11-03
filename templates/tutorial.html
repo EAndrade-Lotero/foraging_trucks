@@ -105,7 +105,7 @@
         passed = false;
         // A whole page or a single step can drop the box and keep only the Continue button.
         el("tut-panel").classList.toggle("bare", !!(BARE || s.bare));
-        el("tut-progress").textContent = {{ config.progress_label | tojson }} + " " + (step + 1) + " of " + STEPS.length;
+        el("tut-progress").textContent = s.progress || ({{ config.progress_label | tojson }} + " " + (step + 1) + " of " + STEPS.length);
         el("tut-text").innerHTML = s.text;
         el("tut-feedback").innerHTML = "";
         el("tut-feedback").className = "";
@@ -158,6 +158,13 @@
         }
     }
 
+    // A board step that passes says so in a popup that points to Continue (Thomas, 3-nov).
+    function complete(explanation) {
+        feedback(true, explanation);
+        popup("Complete", "Goal reached!", (explanation || "")
+            + " Click <strong>Continue</strong> to go on.", false);
+    }
+
     function next() {
         step += 1;
         if (step >= STEPS.length) {
@@ -197,12 +204,35 @@
     window.addEventListener("practice-move", function (event) {
         var s = STEPS[step];
         if (!s || s.type !== "board" || passed) return;
-        if (new Function("me", "return " + s.check)(event.detail)) {
-            feedback(true, s.explanation);
-        } else if (s.out_of_moves && event.detail.moves_left <= 0) {
+        // A foraging stage is judged when the food runs out (practice-food-gone below), so
+        // running out of moves after meeting its goal just waits for the partner to finish
+        // (Thomas, 3-nov: wait for the food to run out).
+        var met = new Function("me", "return " + s.check)(event.detail);
+        if (met && !s.until_food_gone) {
+            complete(s.explanation);
+        } else if (!met && s.out_of_moves && event.detail.moves_left <= 0 && !s.bot_patches) {
+            // (A stage with two patches is judged by practice-food-gone, once the partner is done.)
             // Out of moves before the goal: the step starts again.
             window.dispatchEvent(new CustomEvent("practice-restore"));
             wrong(s, s.out_of_moves, "Out of moves");
+        }
+    });
+
+    // Foraging stages end when the last piece of food is gone: they pass (a "Complete" popup
+    // and Continue) if the participant met the goal, and otherwise start again. {you} and {partner} are the food each collected.
+    window.addEventListener("practice-food-gone", function (event) {
+        var s = STEPS[step];
+        if (!s || s.type !== "board" || !s.until_food_gone || passed) return;
+        function counts(html) {
+            return (html || "").replace(/\{you\}/g, event.detail.me.coins)
+                .replace(/\{partner\}/g, event.detail.partner_coins);
+        }
+        if (new Function("me", "return " + s.check)(event.detail.me)) {
+            complete(counts(s.explanation));
+        } else {
+            window.dispatchEvent(new CustomEvent("practice-restore"));
+            if (event.detail.out_of_moves) wrong(s, counts(s.out_of_moves), "Out of moves");
+            else wrong(s, counts(s.food_gone), "No food left");
         }
     });
 

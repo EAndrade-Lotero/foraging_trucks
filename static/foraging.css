@@ -199,6 +199,18 @@ html {
     }
 }
 
+/* The practice board does not shrink to a column, so a question on its page (tutorial 2's
+   prediction) goes under the board instead of beside it. */
+#main-body:has(#foraging-container):has(#tut-panel:not(.bare)) {
+    display: block;
+}
+
+#main-body:has(#foraging-container) > #tut-panel:not(.bare) {
+    position: static;
+    max-width: min(100%, 48rem);
+    margin-top: 1rem;
+}
+
 /* PsyNet chrome: thinner progress bar, quieter reward footer. */
 .header .progress {
     height: 6px;
@@ -310,6 +322,11 @@ body #main-body:has(#wait-page) {
     font-size: 1.15rem;
     color: #212529;
     margin-top: 0.3rem;
+}
+/* The same line once the step is done: green with a check mark, so the board does not look frozen. */
+.board-instruction.done {
+    color: #1e7b34;
+    font-weight: 600;
 }
 
 /* A slider's name and current value above it (tutorial 3: group contribution). */

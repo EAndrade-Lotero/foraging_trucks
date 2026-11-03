@@ -1,9 +1,6 @@
-numpy
-pandas
-markupsafe
-rq==2.8.0
-redis>=7.1.0,<8.0.0
+psynet[experiment]@git+https://gitlab.com/PsyNetDev/PsyNet@master#egg=psynet
 
-dallinger==12.2.0
-psynet@git+https://gitlab.com/PsyNetDev/PsyNet@4dee41f48f62a16ffe7c5becb2547b5cf75b880b#egg=psynet
-redis>=7.1.0,<8.0.0
+# Alternatively, you can use one of the following syntaxes to specify a custom PsyNet version
+# psynet[experiment]@git+https://gitlab.com/PsyNetDev/PsyNet@v10.4.0#egg=psynet
+# psynet[experiment]@git+https://gitlab.com/PsyNetDev/PsyNet@45f317688af59350f9a6f3052fd73076318f2775#egg=psynet
+# psynet[experiment]@git+https://gitlab.com/PsyNetDev/PsyNet@45f31768#egg=psynet

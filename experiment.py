@@ -169,6 +169,11 @@ def accumulated_food(participant: Participant) -> int:
     return total
 
 
+def has_food_to_continue(participant: Participant) -> bool:
+    """True when more than one round of stale food is left, so another round can start."""
+    return accumulated_food(participant) > STALE_FOOD
+
+
 def food_available(participant: Participant) -> int:
     """Food left to invest after this round's stale food."""
     return max(0, accumulated_food(participant) - STALE_FOOD)
@@ -212,7 +217,7 @@ def is_solo(participant: Participant) -> bool:
 
 def partner_gone(participant: Participant) -> str:
     return ("left the game" if participant.var.get("partner_left", False)
-            else "ran out of moves")
+            else "ran out of food")
 
 
 def left_game(participant: Participant) -> bool:
@@ -259,8 +264,8 @@ def solo_rounds(participant: Participant) -> int:
 def score_round(group, participants, participant, barrier):
     """Runs once when both players have finished foraging: shares the points and pays.
 
-    Both results are computed here, together, so that a player who runs out of moves can leave
-    the group without changing their partner's result for the same round.
+    Both results are computed here, together, so that a player who cannot cover the next
+    round's stale food can leave the group without changing their partner's result.
     """
     if group.var.get("scored_barrier", None) == barrier.id:
         return
@@ -273,9 +278,7 @@ def score_round(group, participants, participant, barrier):
         players[0].var.set("partner_out_round", len(results(players[0])) + 1)
         players[0].var.set("partner_left", True)
     collected = {p.id: points_collected(p) for p in players}
-    for i, p in enumerate(players):
-        if not solo:
-            p.var.set("color_index", i)  # as on the board, where colours follow participant IDs
+    for p in players:
         others = [q for q in players if q.id != p.id]
         own = collected[p.id]
         other = collected[others[0].id] if others else 0
@@ -296,11 +299,13 @@ def score_round(group, participants, participant, barrier):
         scores[str(round_number)] = score
         p.var.set("scores", scores)
     for p in players:
-        if bank(p) <= 0:
+        # Food on hand now includes this round. Less than or equal to the stale food means
+        # the next round cannot start.
+        if not has_food_to_continue(p):
             p.var.set("out_round", len(results(p)))
             group.remove_participant(p)  # the partner plays on alone (min_group_size is 1)
             for q in players:
-                if q.id != p.id and bank(q) > 0:
+                if q.id != p.id and has_food_to_continue(q):
                     q.var.set("partner_out_round", len(results(q)))
 
 
@@ -366,9 +371,8 @@ def tutorial_page() -> InfoPage:
 
 
 def colors(participant: Participant) -> tuple:
-    """The pac-man colours of this player and their partner, as on the board."""
-    me = participant.var.get("color_index", 0)
-    return PLAYER_COLORS[me], PLAYER_COLORS[1 - me]
+    """Each participant sees themself in yellow and their partner in red."""
+    return PLAYER_COLORS[0], PLAYER_COLORS[1]
 
 
 def food_panel(accumulated: int) -> str:
@@ -385,24 +389,19 @@ def food_panel(accumulated: int) -> str:
 
 
 def food_table(participant: Participant) -> str:
-    """Initial food, then each finished round, then this round's stale food taken off."""
-    rows = [f"<tr><td>Initial food</td><td class='num'>{INITIAL_FOOD}</td></tr>"]
-    running = INITIAL_FOOD
-    for r in results(participant):
-        n = r["round"]
-        rows.append(f"<tr><td>Collected, round {n}</td><td class='num'>{signed(int(r.get('own', 0)))}</td></tr>")
-        running += int(r.get("own", 0))
-        spent = int(r.get("food_spent", 0))
-        rows.append(f"<tr><td>Invested, round {n}</td><td class='num'>{signed(-spent)}</td></tr>")
-        running -= spent
-        rows.append(f"<tr><td>Stale food, round {n}</td><td class='num'>{signed(-STALE_FOOD)}</td></tr>")
-        running -= STALE_FOOD
-    available = max(0, running - STALE_FOOD)
+    """The same lines every round: food at the start, this round's stale food, then what can be invested.
+
+    On the first round the start is the initial food. Later rounds use the food carried over,
+    without listing each earlier round again.
+    """
+    start = accumulated_food(participant)
+    available = max(0, start - STALE_FOOD)
     can_invest = investable_food(participant)
-    if results(participant):
-        rows.append(f"<tr class='total'><td>Accumulated food</td><td class='num'>{running}</td></tr>")
-    rows.append(f"<tr><td>Stale food, this round</td><td class='num'>{signed(-STALE_FOOD)}</td></tr>")
-    rows.append(f"<tr class='total'><td>Food you can invest</td><td class='num'>{can_invest}</td></tr>")
+    rows = [
+        f"<tr><td>Initial food</td><td class='num'>{start}</td></tr>",
+        f"<tr><td>Stale food, this round</td><td class='num'>{signed(-STALE_FOOD)}</td></tr>",
+        f"<tr class='total'><td>Food you can invest</td><td class='num'>{can_invest}</td></tr>",
+    ]
     if can_invest < available:
         cap = MAX_MOVES // FOOD_CONVERSION
         rows.append(
@@ -482,42 +481,55 @@ def buy_moves_page(participant: Participant, round_index: int) -> ModularPage:
     )
 
 
-def ledger(r: dict, after: int) -> str:
-    """The round in moves, already added up: the participant never has to compute."""
-    food = "Food (alone: × " + str(SOLO_FOOD_FACTOR) + ")" if r["solo"] else "Food"
+def ledger(initial_food: int, invested_food: int, net: int, food_bank: int) -> str:
+    """This round's food, already added up: initial, invested, stale, then the food on hand."""
     return f"""
         <table class="points-table">
-            <tr><td>Your share of the points</td><td class="num">{signed(r["gained"])} moves</td></tr>
-            <tr><td>Moves you invested</td><td class="num">{signed(-r["invested"])}</td></tr>
-            <tr><td>{food}</td><td class="num">{signed(-r["food"])}</td></tr>
-            <tr class="total"><td>This round</td><td class="num">{signed(r["score"])}</td></tr>
-            <tr><td>Your bank</td><td class="num">{after - r["score"]} → <strong>{max(after, 0)}</strong></td></tr>
+            <tr><td>Initial food</td><td class="num">{initial_food}</td></tr>
+            <tr><td>Food invested</td><td class="num">{signed(-invested_food)}</td></tr>
+            <tr><td>Food gone stale</td><td class="num">{signed(-STALE_FOOD)}</td></tr>
+            <tr class="total"><td>This round</td><td class="num">{signed(net)}</td></tr>
+            <tr><td>Your bank</td><td class="num">{food_bank}</td></tr>
         </table>
     """
 
 
 def score_page(participant: Participant) -> InfoPage:
     r = results(participant)[-1]
-    after = bank(participant)
-    you, partner = colors(participant)
-    head = f"You gained {moves(r['score'])}" if r["score"] >= 0 else f"You lost {moves(-r['score'])}"
+    you, partner_color = colors(participant)
+    spent = int(r.get("food_spent", 0) or 0)
+    own = int(r.get("own", 0))
+    # results already include this round, so take it back out to get the food at the start.
+    initial_food = accumulated_food(participant) - own + spent + STALE_FOOD
+    net = own - spent - STALE_FOOD
+    table = ledger(initial_food, spent, net, initial_food + net)
     if r["solo"]:
-        body = f"<p>You played alone and collected <strong>{points(r['own'])}</strong>.</p>"
-    else:
-        scene = split_scene("score-scene", "", r["own"], r["other"], r["contract"],
-                            you_color=you, partner_color=partner, fixed=True, play_from=0)
         body = f"""
-            <p>You collected <strong>{points(r["own"])}</strong> and your partner
-            <strong>{points(r["other"])}</strong>.</p>
+            <p class="score-heading">Food collected this round:</p>
+            <p>You played alone and collected <strong>{points(own)}</strong>.</p>
+        """
+    else:
+        collected = split_scene(
+            "collected-scene", "", own, int(r["other"]), 0,
+            you_color=you, partner_color=partner_color, fixed=True, caption=False, legend=False,
+        )
+        kept = split_scene(
+            "kept-scene", "", own, int(r["other"]), r["contract"],
+            you_color=you, partner_color=partner_color, fixed=True, caption=False, legend=False,
+        )
+        body = f"""
+            <p class="score-heading">Food collected this round:</p>
+            {collected}
+            <p class="score-heading">Current value of group contribution:</p>
             <div class="contribution-panel">
                 <div class="contribution-panel-label">Group contribution</div>
                 <div class="contribution-panel-value">{contribution_percent(r["contract"])}%</div>
             </div>
-            <p>The group contribution shares the points:</p>
-            {scene}
+            <p class="score-heading">Food kept after contribution:</p>
+            {kept}
         """
     if is_out(participant):
-        tail = """<p class="out-note"><strong>Your bank is empty: you are out of the game.</strong>
+        tail = """<p class="out-note"><strong>You do not have enough food to continue: you are out of the game.</strong>
                   """ + ("" if r["solo"] else "Your partner continues alone.") + "</p>"
     elif participant.var.get("partner_out_round", None) == r["round"]:
         tail = f"""<p class="out-note"><strong>Your partner {partner_gone(participant)}.</strong> From now on
@@ -525,7 +537,7 @@ def score_page(participant: Participant) -> InfoPage:
     else:
         tail = ""
     return InfoPage(
-        Markup(f"<h3>{head} this round</h3>{body}{ledger(r, after)}{tail}"),
+        Markup(f"{body}{table}{tail}"),
         time_estimate=SCORE_SECONDS,
     )
 
@@ -565,19 +577,24 @@ def propose_contract_page(participant: Participant) -> ModularPage:
 
 
 def summary_page(participant: Participant) -> InfoPage:
+    """The game, in food: what you started with, each round, and the food left."""
+    def round_food(r: dict) -> int:
+        return int(r.get("own", 0)) - int(r.get("food_spent", 0) or 0) - STALE_FOOD
+
     rows = "".join(
         f"<tr><td>Round {r['round']}{' (alone)' if r['solo'] else ''}</td>"
-        f"<td class='num'>{signed(r['score'])}</td></tr>"
+        f"<td class='num'>{signed(round_food(r))}</td></tr>"
         for r in results(participant)
     )
+    final = INITIAL_FOOD + sum(round_food(r) for r in results(participant))
     if is_out(participant):
-        how = f"You ran out of moves in round {participant.var.get('out_round')}."
+        how = f"You ran out of food in round {participant.var.get('out_round')}."
     elif left_game(participant):
         how = ("You were away from the game for too long, so it ended for you and your "
                "partner continued alone.")
     elif is_solo(participant):
-        how = (f"Your partner {partner_gone(participant)} in round "
-               f"{participant.var.get('partner_out_round')}; "
+        why = "left the game" if participant.var.get("partner_left", False) else "ran out of food"
+        how = (f"Your partner {why} in round {participant.var.get('partner_out_round')}; "
                "you played on alone.")
     else:
         how = f"You and your partner played all {N_ROUNDS} rounds."
@@ -585,10 +602,10 @@ def summary_page(participant: Participant) -> InfoPage:
         Markup(
             f"""
             <h3>Game over</h3>
-            <p>{how} Thank you for playing. Your bank of moves:</p>
+            <p>{how} Thank you for playing. Your food:</p>
             <table class="points-table">
-                <tr><td>Start</td><td class="num">{START_MOVES}</td></tr>{rows}
-                <tr class="total final"><td>Final bank</td><td class="num">{max(bank(participant), 0)}</td></tr>
+                <tr><td>Initial food</td><td class="num">{INITIAL_FOOD}</td></tr>{rows}
+                <tr class="total final"><td>Your bank</td><td class="num">{final}</td></tr>
             </table>
             """
         ),
@@ -787,7 +804,7 @@ class Exp(psynet.experiment.Experiment):
             initial_group_size=MIN_PLAYERS,
             min_group_size=1,  # after a partner leaves or runs out, the other plays on alone
             # Pairs form only from players waiting together: PsyNet would otherwise let a new
-            # player join any group with room, including one whose partner ran out of moves.
+            # player join any group with room, including one whose partner ran out of food.
             join_existing_groups=False,
             max_wait_time=PARTNER_WAIT_SECONDS,
             waiting_logic=wait_page(

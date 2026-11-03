@@ -332,6 +332,7 @@ def moving_tutorial() -> ModularPage:
             out_of_moves="You ran out of moves, so this step starts again. The food is in the "
             "<strong>centre</strong> of the cave.",
             hint="Food only shows up in your torchlight. Head for the middle of the board.",
+            explanation="Unused moves do not carry over to the next round.",
         ),
         board_step(
             f"me.coins >= {share(pocket)}",
@@ -368,7 +369,7 @@ def moving_tutorial() -> ModularPage:
             out_of_moves="You ran out of moves, so this stage starts again.",
             hint="Food only shows up in your torchlight.",
             explanation="You collected <strong>{you}</strong> and the other player "
-            "<strong>{partner}</strong>.",
+            "<strong>{partner}</strong>. Unused moves do not carry over to the next round.",
             bare=True,
         ),
         # Prediction before the split stage (Thomas, 2-nov): stage 3 then lets them check it.
@@ -423,7 +424,7 @@ def moving_tutorial() -> ModularPage:
             "starts again.",
             hint="Food only shows up in your torchlight.",
             explanation="You collected <strong>{you}</strong> and the other player "
-            "<strong>{partner}</strong>.",
+            "<strong>{partner}</strong>. Unused moves do not carry over to the next round.",
             bare=True,
         ),
     ]
@@ -435,12 +436,18 @@ def moving_tutorial() -> ModularPage:
 def split_scene(scene_id: str, slider_id: str, you: int, partner: int, contract: float,
                 you_color: str = PLAYER_COLORS[0], partner_color: str = PLAYER_COLORS[1],
                 fixed: bool = False, play_from: float = None, whole: bool = False,
-                caption: bool = True) -> str:
+                caption: bool = True, legend: bool = True) -> str:
     """The split picture (static/split_scene.js): two pac-men and the points each one keeps.
 
     With a slider it follows the slider; with `play_from` it animates from that contract to
-    `contract` when the page opens (the round result).
+    `contract` when the page opens (the round result). `legend` is the line under the picture
+    explaining the dot colours; the score page leaves it off.
     """
+    legend_js = (
+        'caption.insertAdjacentHTML("afterend", SplitScene.legend({'
+        f'youColor: "{you_color}", partnerColor: "{partner_color}"}}));'
+        if legend else ""
+    )
     return f"""
         <div id="{scene_id}" class="scene-box"></div>
         <div id="{scene_id}-caption" class="split-caption scene-box"{"" if caption else ' hidden'}></div>
@@ -454,8 +461,7 @@ def split_scene(scene_id: str, slider_id: str, you: int, partner: int, contract:
                 youColor: "{you_color}", partnerColor: "{partner_color}",
                 onChange: function (info) {{ caption.innerHTML = SplitScene.caption(info); }},
             }});
-            caption.insertAdjacentHTML("afterend", SplitScene.legend({{
-                youColor: "{you_color}", partnerColor: "{partner_color}" }}));
+            {legend_js}
             window["{scene_id}"] = scene;
             {"" if play_from is None else f"setTimeout(function () {{ scene.set({contract}, true); }}, 900);"}
             function follow() {{

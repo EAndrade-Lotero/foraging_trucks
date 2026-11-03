@@ -193,6 +193,12 @@
     var PRACTICE_COINS = {{ (config.coins or []) | tojson }};
     var MY_ID = String({{ config.participant_id }});
     var KNOWN_PLAYERS = {{ config.known_players | tojson }};
+    // Each player sees their own pac-man in yellow and their partner in red.
+    var SELF_COLOR = "#f1c40f";
+    var PARTNER_COLOR = "#e74c3c";
+    function playerColor(pid) {
+        return String(pid) === MY_ID ? SELF_COLOR : PARTNER_COLOR;
+    }
     var TIMER_SECONDS = {{ config.timer_seconds }};
     var TIMER_STORAGE_KEY = "foraging_round_" + ROOM_ID;
 
@@ -334,7 +340,7 @@
                 var player = localState.players[pid];
                 var truck = self.players[pid];
                 if (!truck) {
-                    truck = self.makeTruck(player.color);
+                    truck = self.makeTruck(playerColor(pid));
                     var start = gridToWorld(player.x, player.y);
                     truck.position.set(start.x, start.y, 0);
                     if (pid === MY_ID) {
@@ -355,7 +361,7 @@
                 }
                 truck.userData.target = target;
                 truck.userData.paint.color = player.connected === false
-                    ? new THREE.Color(0x888888) : parseColor(player.color);
+                    ? new THREE.Color(0x888888) : parseColor(playerColor(pid));
             });
         },
 
@@ -570,7 +576,7 @@
         Object.keys(localState.players || {}).forEach(function (pid) {
             var player = localState.players[pid];
             var tint = new THREE.MeshBasicMaterial({
-                color: parseColor(player.color), transparent: true, opacity: 0.3,
+                color: parseColor(playerColor(pid)), transparent: true, opacity: 0.3,
             });
             var visited = {};
             (player.trajectory || []).forEach(function (step) {
@@ -601,7 +607,7 @@
         Object.keys(localState.players || {}).forEach(function (pid) {
             var player = localState.players[pid];
             var pos = gridToWorld(player.x, player.y);
-            var mesh = CaveView.pacman(player.color, pid === MY_ID, player.connected !== false, facing(player));
+            var mesh = CaveView.pacman(playerColor(pid), pid === MY_ID, player.connected !== false, facing(player));
             mesh.position.set(pos.x, pos.y, 0.1);
             boardGroup.add(mesh);
             entityMeshes["player_" + pid] = mesh;
@@ -706,8 +712,8 @@
         // A third column only when the step asks for it (Thomas, 3-nov: no "Food left").
         var last = practiceScore.show === "total" ? cell("Together", mine + theirs)
             : practiceScore.show === "left" ? cell("Food left", (localState.coins || []).length) : "";
-        el.innerHTML = cell("You", mine, me && me.color)
-            + cell(practiceScore.other, theirs, other && other.color) + last;
+        el.innerHTML = cell("You", mine, me && playerColor(MY_ID))
+            + cell(practiceScore.other, theirs, other && playerColor(practiceScore.bot)) + last;
     }
 
     function sendMessage(payload) {

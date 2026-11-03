@@ -268,6 +268,18 @@ body #main-body:has(#wait-page) {
     text-align: left;
 }
 
+/* Section labels on the score page. */
+.score-heading {
+    font-size: 1.15rem;
+    font-weight: 500;
+    color: #495057;
+    margin: 1.15rem 0 0.35rem;
+}
+
+.score-heading:first-child {
+    margin-top: 0;
+}
+
 /* Accumulated food (invest page) and the group contribution in force (score page). */
 .food-panel,
 .contribution-panel {

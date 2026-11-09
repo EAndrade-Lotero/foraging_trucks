@@ -1,4 +1,4 @@
-psynet[experiment]@git+https://gitlab.com/PsyNetDev/PsyNet@master#egg=psynet
+psynet[experiment]@git+https://gitlab.com/PsyNetDev/PsyNet@10b7419a5114814618643e9588c37b936846920b#egg=psynet
 
 # Alternatively, you can use one of the following syntaxes to specify a custom PsyNet version
 # psynet[experiment]@git+https://gitlab.com/PsyNetDev/PsyNet@v10.4.0#egg=psynet

@@ -11,7 +11,7 @@ few rounds.
 """
 
 # When False, the four tutorial pages before pairing are omitted.
-INCLUDE_TUTORIAL = False
+INCLUDE_TUTORIAL = True
 
 START_MOVES = 40  # move bank at the start of the game
 START_CONTRACT = 0.0  # 0 = commission (keep your points), 1 = wages (equal split)
@@ -24,7 +24,7 @@ MOVE_STEP = 5  # the invest slider moves in steps of 5 moves
 FOOD_CONVERSION = 6
 FOOD_MOVES = 8  # moves paid for food every round
 
-N_ROUNDS = 10
+N_ROUNDS = 1
 CONTRACT_BLOCK = 5  # rounds played with the same contract before proposing a new one
 
 # Lobby. The game waits for BASE_GROUP_SIZE players, or starts earlier once at
@@ -32,9 +32,9 @@ CONTRACT_BLOCK = 5  # rounds played with the same contract before proposing a ne
 # JUMP_START_WAITING_PAGES lobby pages. Each round pairs them at random.
 # Someone left over sits the round out. A started game that falls below
 # MIN_GROUP_SIZE ends, and those players continue to the results page.
-BASE_GROUP_SIZE = 4
+BASE_GROUP_SIZE = 8
 MIN_GROUP_SIZE = 2
-JUMP_START_WAITING_PAGES = 4
+JUMP_START_WAITING_PAGES = 1
 
 # When False, a newcomer cannot join a quorum that has already opened the
 # game. They wait for a new group. A quorum still filling in the lobby can

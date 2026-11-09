@@ -717,8 +717,14 @@
     }
 
     function sendMessage(payload) {
-        if (!gameSocket || gameSocket.readyState !== WebSocket.OPEN) return;
-        gameSocket.send(GLOBAL_CH + ":" + JSON.stringify(payload));
+        // PsyNetWebSocketChannel.send adds the channel prefix and only sends
+        // while the socket is open and the server has accepted the scope.
+        if (!gameSocket || typeof gameSocket.isOpen !== "function" || !gameSocket.isOpen()) {
+            return;
+        }
+        try {
+            gameSocket.send(payload);
+        } catch (e) {}
     }
 
     function leaveRoom() {
@@ -732,14 +738,11 @@
     }
 
     function connectSocket() {
-        if (typeof ReconnectingWebSocket === "undefined") return;
-
-        var wsScheme = location.protocol === "https:" ? "wss://" : "ws://";
-        gameSocket = new ReconnectingWebSocket(
-            wsScheme + location.host + "/chat?channel=" + GLOBAL_CH
-            + "&worker_id=" + dallinger.identity.workerId
-            + "&participant_id=" + MY_ID
-        );
+        // PsyNet refuses a /chat socket that does not send the page's
+        // websocket scope (accept_websocket_connection). The shared helper
+        // attaches that token; a raw ReconnectingWebSocket does not, so the
+        // server closed every connection and moves never arrived.
+        if (typeof PsyNetWebSocketChannel === "undefined") return;
 
         function joinRoom() {
             sendMessage({
@@ -761,49 +764,44 @@
             }
         }
 
-        gameSocket.onopen = function () {
-            if (leftGame) return;
-            joinRoom();
+        function applyState(msg) {
+            if (!msg || String(msg.room_id) !== String(ROOM_ID)) return;
+            if (msg.type !== "state_update") return;
             stopJoinRetry();
-            var attempts = 0;
-            joinRetryInterval = setInterval(function () {
-                attempts += 1;
-                if (leftGame || attempts > 20) {
-                    stopJoinRetry();
-                    return;
-                }
-                joinRoom();
-            }, 1500);
-        };
-
-        gameSocket.onclose = stopJoinRetry;
-
-        gameSocket.onmessage = function (event) {
-            if (event.data.indexOf(GLOBAL_CH + ":") !== 0) return;
-            var msg;
-            try {
-                msg = JSON.parse(event.data.slice(GLOBAL_CH.length + 1));
-            } catch (e) { return; }
-
-            if (String(msg.room_id) !== String(ROOM_ID)) return;
-
-            if (msg.type === "state_update") {
-                stopJoinRetry();
-                localState = msg.state || { players: {}, coins: [] };
-                if (!localState.players) {
-                    localState.players = {};
-                }
-                syncMeshes();
-                updateScore();
-                syncTimerFromState(localState);
-                if (
-                    window.foragingControl
-                    && typeof window.foragingControl.onStateUpdate === "function"
-                ) {
-                    window.foragingControl.onStateUpdate(localState);
-                }
+            localState = msg.state || { players: {}, coins: [] };
+            if (!localState.players) {
+                localState.players = {};
             }
-        };
+            syncMeshes();
+            updateScore();
+            syncTimerFromState(localState);
+            if (
+                window.foragingControl
+                && typeof window.foragingControl.onStateUpdate === "function"
+            ) {
+                window.foragingControl.onStateUpdate(localState);
+            }
+        }
+
+        gameSocket = PsyNetWebSocketChannel.connect({
+            channel: GLOBAL_CH,
+            onOpen: function () {
+                if (leftGame) return;
+                joinRoom();
+                stopJoinRetry();
+                var attempts = 0;
+                joinRetryInterval = setInterval(function () {
+                    attempts += 1;
+                    if (leftGame || attempts > 20) {
+                        stopJoinRetry();
+                        return;
+                    }
+                    joinRoom();
+                }, 1500);
+            },
+            onClose: stopJoinRetry,
+            onMessage: applyState,
+        });
     }
 
     function persistRoundStart(timestamp) {

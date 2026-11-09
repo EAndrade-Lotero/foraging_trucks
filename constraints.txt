@@ -157,7 +157,7 @@ psycogreen==1.0.2
     # via dallinger
 psycopg2==2.9.13
     # via dallinger
-psynet @ git+https://gitlab.com/PsyNetDev/PsyNet@276d80825844025a9b945917b9f58e996692867a#egg=psynet
+psynet @ git+https://gitlab.com/PsyNetDev/PsyNet@10b7419a5114814618643e9588c37b936846920b#egg=psynet
     # via -r requirements.txt
 ptyprocess==0.7.0
     # via pexpect

@@ -50,6 +50,9 @@ def tutorial_page(label: str, prompt, steps: list, bare: bool = False,
         TutorialControl(steps, bare, progress_label),
         time_estimate=TUTORIAL_SECONDS,
         show_next_button=False,
+        # tutorial.html has a style block, an inline script, and window
+        # listeners. PsyNet 14 refuses to swap that in place.
+        requires_full_page_reload=True,
     )
 
 

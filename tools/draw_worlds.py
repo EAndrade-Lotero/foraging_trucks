@@ -138,7 +138,7 @@ def gem_sprite(pixels: int) -> Image.Image:
 
 
 def board_size(name: str) -> int:
-    if name.startswith("andrade16"):
+    if name.startswith(("andrade16", "split16", "scatter16")):
         return 16
     if name.startswith("andrade10"):
         return 10

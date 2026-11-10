@@ -306,6 +306,11 @@ class EnableForaging(NullElt, WebSocketElt):
             return
 
         msg_type = data.get("type")
+        # A player sitting this round out may watch the other tables, but must not
+        # join them or move.
+        if msg_type == "spectate":
+            self._spectate(experiment, participant, room_id, data)
+            return
         if participant is not None and pair_group(participant) is None:
             return  # no longer in a pair (sitting out, out of food, or taken out)
 
@@ -482,6 +487,57 @@ class EnableForaging(NullElt, WebSocketElt):
                 )
                 break
 
+    def _spectate(self, experiment, participant, room_id: str, data: dict):
+        """Send one room's board to a player who is sitting this round out.
+
+        Watching does not create the room or start its clock. Until the pair
+        opens the board, the reply says they are still buying moves.
+        """
+        if (
+            participant is None
+            or not room_id
+            or not participant.var.get("sitting_out", False)
+            or not self._watching_allowed(participant, room_id)
+        ):
+            return
+        room = self._rooms.get(room_id)
+        if room is None:
+            payload = {
+                "type": "state_update",
+                "room_id": room_id,
+                "state": {
+                    "buying": True,
+                    "grid_size": data.get("grid_size", GRID_SIZE),
+                    "terrain": data.get("terrain"),
+                    "players": {},
+                    "coins": [],
+                },
+            }
+            experiment.publish_to_subscribers(
+                json.dumps(payload),
+                channel_name=self.channel,
+            )
+            return
+        self._broadcast_state(experiment, room_id)
+
+    @staticmethod
+    def _watching_allowed(participant, room_id: str) -> bool:
+        """A sitter may only watch the pairs assigned in their own quorum this round."""
+        from .grouping import Quorum
+
+        pieces = str(room_id).split("_")
+        if len(pieces) != 3 or pieces[0] != "foraging":
+            return False
+        try:
+            crew_id = int(pieces[1])
+        except ValueError:
+            return False
+        quorum = Quorum.for_participant(participant)
+        if quorum is None:
+            return False
+        tables = quorum.var.get("round_tables", None) or []
+        return any(int(table.get("crew_id", -1)) == crew_id for table in tables)
+
     def _broadcast_state(self, experiment, room_id: str):
         self._broadcast_state_for_room(experiment, room_id)
 
@@ -534,6 +590,31 @@ class ForagingPrompt(Prompt):
         self.timer_seconds = timer_seconds
         self.channel = EnableForaging.channel
         self.style = VARIANT
+
+
+class SitOutPrompt(Prompt):
+    """The overhead view a player sees while the rest of the group plays this round."""
+
+    macro = "sitout_watch"
+    external_template = "custom-prompts.html"
+
+    def __init__(
+        self,
+        text: str,
+        participant_id: int,
+        tables: list,
+        terrain: str,
+        watch_seconds: int,
+        grid_size: int = GRID_SIZE,
+    ):
+        super().__init__(text=Markup(text))
+        self.participant_id = participant_id
+        self.tables = tables
+        self.terrain = terrain
+        self.grid_size = grid_size
+        self.watch_seconds = watch_seconds
+        self.channel = EnableForaging.channel
+        self.colors = ["#f1c40f", "#e74c3c"]
 
 
 EMPTY_STATS = {

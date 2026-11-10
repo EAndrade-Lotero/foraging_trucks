@@ -1283,3 +1283,263 @@
 })();
 </script>
 {% endmacro %}
+
+{% macro sitout_watch(config) %}
+<style>
+    .sitout-boards {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1.25rem;
+        margin-top: 0.5rem;
+    }
+    .sitout-stage {
+        position: relative;
+        display: inline-block;
+    }
+    .sitout-stage canvas {
+        display: block;
+        border: 2px solid #1a1a2e;
+        border-radius: 6px;
+        background: #000;
+    }
+    .sitout-buying {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        margin: 0;
+        padding: 0.7rem 1rem;
+        max-width: 80%;
+        text-align: center;
+        color: #fff;
+        background: rgba(0, 0, 0, 0.62);
+        border-radius: 6px;
+        font-weight: 700;
+        font-size: 1.15rem;
+    }
+</style>
+{% if config.text %}<div>{{ config.text }}</div>{% endif %}
+<div class="sitout-boards" id="sitout-boards"></div>
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script src="/static/cave.js"></script>
+<script>
+(function () {
+    var TABLES = {{ config.tables | tojson }};
+    var GLOBAL_CH = {{ config.channel | tojson }};
+    var GRID = {{ config.grid_size }};
+    var TERRAIN = {{ config.terrain | tojson }};
+    var MY_ID = String({{ config.participant_id }});
+    var COLORS = {{ config.colors | tojson }};
+    var cellSize = 1;
+    var boardOffset = (GRID - 1) / 2;
+    var submitted = false;
+    var socket = null;
+
+    function gridToWorld(x, y) {
+        return { x: (x - boardOffset) * cellSize, y: (boardOffset - y) * cellSize };
+    }
+
+    function facing(player) {
+        var t = player.trajectory || [];
+        if (t.length < 2) return 0;
+        var a = t[t.length - 2], b = t[t.length - 1];
+        return Math.atan2(a[1] - b[1], b[0] - a[0]);
+    }
+
+    function finish() {
+        if (submitted) return;
+        submitted = true;
+        if (typeof psynet !== "undefined" && psynet.submitResponse) psynet.submitResponse();
+    }
+
+    function Board(table) {
+        this.table = table;
+        this.mode = null;
+        this.state = { buying: true, players: {}, coins: [] };
+        this.entityMeshes = {};
+        var stage = document.createElement("div");
+        stage.className = "sitout-stage";
+        var canvas = document.createElement("canvas");
+        canvas.width = 420;
+        canvas.height = 420;
+        stage.appendChild(canvas);
+        var label = document.createElement("p");
+        label.className = "sitout-buying";
+        label.textContent = "Player is buying moves";
+        stage.appendChild(label);
+        document.getElementById("sitout-boards").appendChild(stage);
+        this.canvas = canvas;
+        this.label = label;
+        this.renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+        this.renderer.setPixelRatio(window.devicePixelRatio || 1);
+        this.renderer.setSize(420, 420);
+        this.renderer.setClearColor(0x000000);
+        this.scene = new THREE.Scene();
+        var frustum = GRID * cellSize * 0.53;
+        this.camera = new THREE.OrthographicCamera(-frustum, frustum, frustum, -frustum, 0.1, 100);
+        this.camera.position.set(0, 0, 10);
+        this.camera.lookAt(0, 0, 0);
+        this.group = new THREE.Group();
+        this.scene.add(this.group);
+        this.clock = new THREE.Clock();
+        this.cave = null;
+        var self = this;
+        function frame() {
+            if (submitted) return;
+            requestAnimationFrame(frame);
+            if (self.cave) self.cave.tick(self.clock.getElapsedTime());
+            self.renderer.render(self.scene, self.camera);
+        }
+        frame();
+        this.show("buying");
+    }
+
+    Board.prototype.show = function (mode) {
+        if (this.mode === mode) return;
+        this.mode = mode;
+        while (this.group.children.length) this.group.remove(this.group.children[0]);
+        this.entityMeshes = {};
+        if (mode === "live") {
+            // The whole cave from above, so both players and the food are visible.
+            this.cave = CaveView.build(this.group, GRID, 1, { dark: 0 });
+            this.cave.hideLight();
+            this.label.hidden = true;
+        } else {
+            this.cave = CaveView.build(this.group, GRID, 1);
+            this.cave.hideLight();
+            this.label.hidden = false;
+        }
+    };
+
+    Board.prototype.draw = function () {
+        var self = this;
+        Object.keys(this.entityMeshes).forEach(function (key) {
+            self.group.remove(self.entityMeshes[key]);
+        });
+        this.entityMeshes = {};
+        var players = (this.state && this.state.players) || {};
+        var order = (this.table.players || []).map(String);
+        (this.state.coins || []).forEach(function (coin, idx) {
+            var pos = gridToWorld(coin.x, coin.y);
+            var mesh = CaveView.point();
+            mesh.position.set(pos.x, pos.y, 0.075);
+            self.group.add(mesh);
+            self.entityMeshes["coin_" + idx] = mesh;
+        });
+        Object.keys(players).forEach(function (pid) {
+            var player = players[pid];
+            var tint = new THREE.MeshBasicMaterial({
+                color: new THREE.Color(COLORS[Math.max(0, order.indexOf(String(pid)))] || COLORS[1]),
+                transparent: true,
+                opacity: 0.3,
+            });
+            var seen = {};
+            (player.trajectory || []).forEach(function (step) {
+                var key = step[0] + "_" + step[1];
+                if (seen[key]) return;
+                seen[key] = true;
+                var tile = new THREE.Mesh(new THREE.PlaneGeometry(cellSize * 0.9, cellSize * 0.9), tint);
+                var tpos = gridToWorld(step[0], step[1]);
+                tile.position.set(tpos.x, tpos.y, 0.07);
+                self.group.add(tile);
+                self.entityMeshes["trace_" + pid + "_" + key] = tile;
+            });
+            var pos = gridToWorld(player.x, player.y);
+            var color = COLORS[Math.max(0, order.indexOf(String(pid)))] || COLORS[1];
+            var pac = CaveView.pacman(color, false, player.connected !== false, facing(player));
+            pac.position.set(pos.x, pos.y, 0.1);
+            self.group.add(pac);
+            self.entityMeshes["player_" + pid] = pac;
+        });
+    };
+
+    Board.prototype.apply = function (state) {
+        this.state = state || this.state;
+        var players = (this.state.players) || {};
+        var live = !this.state.buying && Object.keys(players).length > 0;
+        this.show(live ? "live" : "buying");
+        if (live) this.draw();
+    };
+
+    Board.prototype.finished = function () {
+        var players = (this.state && this.state.players) || {};
+        var ids = Object.keys(players);
+        if (!ids.length) return false;
+        var gone = ids.every(function (id) { return players[id].connected === false; });
+        if (gone) return true;
+        var started = this.state.round_started_at;
+        var duration = this.state.timer_duration || 60;
+        return !!(started && (Date.now() / 1000 - started) >= duration);
+    };
+
+    if (!TABLES.length || typeof THREE === "undefined" || typeof CaveView === "undefined") {
+        return;
+    }
+
+    var boards = {};
+    TABLES.forEach(function (table) {
+        boards[String(table.room_id)] = new Board(table);
+    });
+
+    function send(payload) {
+        if (!socket || socket.readyState !== WebSocket.OPEN) return;
+        socket.send(GLOBAL_CH + ":" + JSON.stringify(payload));
+    }
+
+    function ask() {
+        TABLES.forEach(function (table) {
+            send({
+                type: "spectate",
+                room_id: table.room_id,
+                sender: MY_ID,
+                grid_size: GRID,
+                terrain: TERRAIN,
+            });
+        });
+    }
+
+    function maybeFinish() {
+        var all = TABLES.every(function (table) {
+            return boards[String(table.room_id)].finished();
+        });
+        if (all) finish();
+    }
+
+    function connect() {
+        if (socket || typeof ReconnectingWebSocket === "undefined") return;
+        if (typeof dallinger === "undefined" || !dallinger.identity) return;
+        var wsScheme = location.protocol === "https:" ? "wss://" : "ws://";
+        socket = new ReconnectingWebSocket(
+            wsScheme + location.host + "/chat?channel=" + GLOBAL_CH
+            + "&worker_id=" + dallinger.identity.workerId
+            + "&participant_id=" + MY_ID
+        );
+        socket.onopen = ask;
+        socket.onmessage = function (event) {
+            if (event.data.indexOf(GLOBAL_CH + ":") !== 0) return;
+            var msg;
+            try { msg = JSON.parse(event.data.slice(GLOBAL_CH.length + 1)); }
+            catch (e) { return; }
+            if (msg.type !== "state_update") return;
+            var board = boards[String(msg.room_id)];
+            if (!board) return;
+            board.apply(msg.state || {});
+            maybeFinish();
+        };
+        setInterval(function () {
+            if (submitted) return;
+            ask();
+            maybeFinish();
+        }, 1500);
+    }
+
+    if (typeof psynet !== "undefined" && psynet.trial && psynet.trial.onEvent) {
+        psynet.trial.onEvent("trialStart", connect);
+    } else if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", connect);
+    } else {
+        connect();
+    }
+})();
+</script>
+{% endmacro %}

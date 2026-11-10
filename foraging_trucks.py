@@ -7,11 +7,11 @@ import json
 import math
 
 from markupsafe import Markup
-from psynet.modular_page import ModularPage, Prompt, SliderControl
+from psynet.modular_page import ModularPage, NullControl, Prompt, SliderControl
 from psynet.page import InfoPage, WaitPage
 from psynet.participant import Participant
 from psynet.sync import GroupBarrier
-from psynet.timeline import CodeBlock, PageMaker, conditional, join
+from psynet.timeline import CodeBlock, Event, PageMaker, conditional, join
 from psynet.trial.static import StaticNode, StaticTrial, StaticTrialMaker
 
 from .foraging import (
@@ -21,6 +21,7 @@ from .foraging import (
     PLAYER_COLORS,
     ROUND_TERRAINS,
     ForagingPage,
+    SitOutPrompt,
     last_valid_answer,
 )
 from .game_parameters import (
@@ -665,15 +666,58 @@ def proposes_after(round_index: int) -> bool:
     return proposes_this_round(round_index)
 
 
-def sit_out_page(participant: Participant) -> InfoPage:
-    """Shown to a player who has no partner for this round."""
+def sit_out_page(participant: Participant, node_id: int, round_index: int) -> ModularPage:
+    """The odd player sits this round out and watches the other tables from above."""
     quorum = Quorum.for_participant(participant)
-    if quorum is not None and quorum.var.get("ended_early", None):
-        text = "The group no longer has enough players, so the game ends here."
+    ended = quorum is not None and quorum.var.get("ended_early", None)
+    raw = [] if quorum is None else list(quorum.var.get("round_tables", None) or [])
+    tables = [
+        {
+            "room_id": f"foraging_{int(table['crew_id'])}_{node_id}",
+            "players": [int(pid) for pid in table.get("players") or []],
+        }
+        for table in raw
+        if table.get("crew_id") is not None
+    ]
+    if ended or not tables:
+        text = (
+            "<h3>This round</h3>"
+            "<p>The group no longer has enough players, so the game ends here.</p>"
+        )
+        watch_seconds = 4
     else:
-        text = ("You are sitting this round out. You will be paired again when "
-                "the next round starts.")
-    return InfoPage(Markup(f"<h3>This round</h3><p>{text}</p>"), time_estimate=5)
+        text = (
+            "<h3>This round</h3>"
+            "<p>You are sitting this round out because there is an odd number of players. "
+            "You will be paired again when the next round starts.</p>"
+            "<p>Below is a bird's-eye view of the other players.</p>"
+        )
+        # The page advances once every watched table has finished. This limit is
+        # only a backstop, past buying moves, the partner barrier, and the board.
+        watch_seconds = MOVES_SECONDS + FORAGING_DURATION + 45
+    return ModularPage(
+        "sit_out",
+        SitOutPrompt(
+            text,
+            participant_id=participant.id,
+            tables=tables,
+            terrain=ROUND_TERRAINS[round_index % len(ROUND_TERRAINS)],
+            watch_seconds=watch_seconds,
+        ),
+        NullControl(),
+        show_next_button=False,
+        requires_full_page_reload=True,
+        time_estimate=watch_seconds,
+        bot_response="No answer",
+        events={
+            "autoSubmit": Event(
+                is_triggered_by="trialStart",
+                delay=float(watch_seconds),
+                once=True,
+                js="psynet.submitResponse()",
+            ),
+        },
+    )
 
 
 class ForagingTrucksTrial(StaticTrial):
@@ -696,7 +740,12 @@ class ForagingTrucksTrial(StaticTrial):
             conditional(
                 f"sit_{round_index}",
                 lambda participant: bool(participant.var.get("sitting_out", False)),
-                PageMaker(sit_out_page, time_estimate=5),
+                PageMaker(
+                    lambda participant, node_id=self.node_id, round_index=round_index: (
+                        sit_out_page(participant, node_id, round_index)
+                    ),
+                    time_estimate=MOVES_SECONDS + FORAGING_DURATION,
+                ),
                 join(
                     playing(
                         CodeBlock(notice_if_alone),

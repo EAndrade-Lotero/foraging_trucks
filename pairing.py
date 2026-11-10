@@ -179,6 +179,7 @@ def assign_round_pairs(participant: Participant, round_index: int) -> None:
     if len(eligible) < MIN_GROUP_SIZE:
         locked.var.set("ended_early", "group_too_small")
         locked.var.set("paired_round", int(round_index))
+        locked.var.set("round_tables", [])
         for person in members:
             _sit_out(person)
             _leave_crew(person)
@@ -199,6 +200,7 @@ def assign_round_pairs(participant: Participant, round_index: int) -> None:
         # the average stored on the quorum.
         locked.var.set("round_contracts", [])
     contract = locked.var.get("contract", START_CONTRACT)
+    tables = []
     for first, second in pairs:
         crew = SimpleSyncGroup(
             group_type=CREW_GROUP,
@@ -212,10 +214,16 @@ def assign_round_pairs(participant: Participant, round_index: int) -> None:
         db.session.add(crew)
         crew.add_participant(first)
         crew.add_participant(second)
+        db.session.flush()
         crew.leader = first if first.id < second.id else second
         crew.var.set("contract", contract)
         _seat(first, second.id)
         _seat(second, first.id)
+        tables.append({
+            "crew_id": int(crew.id),
+            "players": [int(first.id), int(second.id)],
+        })
+    locked.var.set("round_tables", tables)
     for person in sitters:
         counts[str(person.id)] = int(counts.get(str(person.id), 0) or 0) + 1
     for person in sitters + waiting:

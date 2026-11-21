@@ -15,21 +15,22 @@ INCLUDE_TUTORIAL = False
 
 # When True, participants watch static/voting_treatment.mp4 (about 73 seconds) before the
 # tutorials. Next appears once the video has ended.
-INCLUDE_VIDEO = True
+INCLUDE_VIDEO = False
 
 START_MOVES = 40  # move bank at the start of the game
 START_CONTRACT = 0.0  # 0 = commission (keep your points), 1 = wages (equal split)
 INITIAL_FOOD = 10  # food each participant starts with
 STALE_FOOD = 2  # food lost at the start of every round, before investing
 MAX_MOVES = 60  # most moves a player can invest in one round (option b, 12-oct)
+MAX_FOOD_TO_INVEST = 8  # most food a player can turn into moves in one round
 MOVE_STEP = 5  # the invest slider moves in steps of 5 moves
 # Food -> moves: each point (food) collected converts into this many moves. Keep it even, so
 # half a point (the contract shares in halves) is a whole number of moves.
 FOOD_CONVERSION = 6
 FOOD_MOVES = 8  # moves paid for food every round
 
-N_ROUNDS = 10
-CONTRACT_BLOCK = 5  # rounds played with the same contract before proposing a new one
+N_ROUNDS = 4
+CONTRACT_BLOCK = 2  # rounds played with the same contract before proposing a new one
 
 # Each round is a chain, and each node of the chain is one group playing that round
 # (foraging_trucks.py). A chain takes this many groups; after that it is full and no

@@ -32,6 +32,7 @@ from .game_parameters import (
     FOOD_MOVES,
     INITIAL_FOOD,
     MAX_GROUPS_PER_CHAIN,
+    MAX_FOOD_TO_INVEST,
     MAX_MOVES,
     MIN_GROUP_SIZE,
     N_ROUNDS,
@@ -225,10 +226,21 @@ def food_available(participant: Participant) -> int:
     return max(0, accumulated_food(participant) - STALE_FOOD)
 
 
+def food_invest_cap() -> int:
+    """Most food the slider offers in one round.
+
+    ``MAX_FOOD_TO_INVEST`` is the limit. It is tightened when that much food would buy more
+    than ``MAX_MOVES`` moves.
+    """
+    cap = max(0, int(MAX_FOOD_TO_INVEST))
+    if FOOD_CONVERSION:
+        cap = min(cap, MAX_MOVES // FOOD_CONVERSION)
+    return cap
+
+
 def investable_food(participant: Participant) -> int:
     """Food the slider can turn into moves this round."""
-    cap = MAX_MOVES // FOOD_CONVERSION if FOOD_CONVERSION else 0
-    return min(food_available(participant), cap)
+    return min(food_available(participant), food_invest_cap())
 
 
 def food_spent_answer(participant: Participant) -> int:
@@ -602,10 +614,10 @@ def food_table(participant: Participant) -> str:
         f"<tr class='total'><td>Food you can invest</td><td class='num'>{can_invest}</td></tr>",
     ]
     if can_invest < available:
-        cap = MAX_MOVES // FOOD_CONVERSION
+        cap = food_invest_cap()
         rows.append(
             f"<tr><td colspan='2'><span class='note'>At most {cap} food can become moves "
-            f"this round ({MAX_MOVES} moves).</span></td></tr>"
+            f"this round ({cap * FOOD_CONVERSION} moves).</span></td></tr>"
         )
     return "<table class='points-table'>" + "".join(rows) + "</table>"
 
@@ -633,18 +645,14 @@ def buy_moves_page(participant: Participant, round_index: int) -> ModularPage:
         converter = f"""
         <div id="round-convert" class="scene-box"></div>
         <script src="/static/convert_scene.js"></script>
-        <div id="moves-output" class="live-value"></div>
-        {slider_frame("moves-slider", "", "", top + 1, below="moves-output", values=list(range(top + 1)))}
+        {slider_frame("moves-slider", "", "", top + 1, values=list(range(top + 1)))}
         <script>
         psynet.trial.onEvent("trialConstruct", function () {{
             var slider = document.getElementById("moves-slider");
             var convert = ConvertScene(document.getElementById("round-convert"),
                                        {{bank: {top}, perPoint: {FOOD_CONVERSION}}});
-            var out = document.getElementById("moves-output");
             function show(animate) {{
-                var v = parseInt(slider.value, 10);
-                convert.set(v, animate);
-                out.innerHTML = "<em>Instruction: invest " + v + " food</em>";
+                convert.set(parseInt(slider.value, 10), animate);
             }}
             slider.addEventListener("input", function () {{ show(true); }});
             show(false);

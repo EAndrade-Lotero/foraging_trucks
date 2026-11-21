@@ -6,8 +6,9 @@ from typing import List
 import psynet.experiment
 from markupsafe import Markup
 from psynet.bot import Bot, BotDriver
+from psynet.modular_page import ModularPage, VideoPrompt
 from psynet.page import InfoPage
-from psynet.timeline import PageMaker, Timeline
+from psynet.timeline import Event, PageMaker, Timeline
 
 from .foraging import EnableForaging, patch_dallinger_sockets
 from .avatar import avatar_page
@@ -15,6 +16,7 @@ from .foraging_trucks import summary_page, trial_maker, tutorial_page
 from .game_parameters import (
     BASE_GROUP_SIZE,
     INCLUDE_TUTORIAL,
+    INCLUDE_VIDEO,
     MIN_GROUP_SIZE,
     N_ROUNDS,
 )
@@ -26,6 +28,31 @@ from .grouping import (
 )
 from .tutorial import buying_moves_tutorial, contract_tutorial, moving_tutorial
 from .waiting import with_waiting_pages
+
+
+# static/voting_treatment.mp4 is 73 seconds. A few extra seconds cover reading
+# the line and clicking Next once the video ends.
+TREATMENT_VIDEO_SECONDS = 73
+
+
+def treatment_video_page():
+    """The voting-treatment video, played before the tutorials."""
+    return ModularPage(
+        "voting_treatment",
+        VideoPrompt(
+            "/static/voting_treatment.mp4",
+            Markup(
+                "<p>Please watch this video. If it does not start on its own, press "
+                "play. Next appears when the video ends.</p>"
+            ),
+            width="min(100%, 48rem)",
+            controls=True,
+            hide_when_finished=False,
+        ),
+        time_estimate=TREATMENT_VIDEO_SECONDS + 15,
+        # Next stays off until the video reports that it has finished.
+        events={"submitEnable": Event(is_triggered_by="promptEnd", once=True)},
+    )
 
 
 class Exp(psynet.experiment.Experiment):
@@ -85,7 +112,17 @@ class Exp(psynet.experiment.Experiment):
                 """
                 + (
                     """
-                <p>First, three short tutorials show you how to play. Then you make your
+                <p>First you watch a short video. Then three short tutorials show you how
+                to play, and you make your pac-man and wait for the group.</p>
+                """
+                    if INCLUDE_VIDEO and INCLUDE_TUTORIAL
+                    else """
+                <p>First you watch a short video. Then you make your pac-man and wait for
+                the group, and the game starts.</p>
+                """
+                    if INCLUDE_VIDEO
+                    else """
+                <p>First three short tutorials show you how to play. Then you make your
                 pac-man and wait for the group.</p>
                 """
                     if INCLUDE_TUTORIAL
@@ -97,6 +134,7 @@ class Exp(psynet.experiment.Experiment):
             ),
             time_estimate=10,
         ),
+        *([treatment_video_page()] if INCLUDE_VIDEO else []),
         *(
             [
                 tutorial_page(),

@@ -11,7 +11,11 @@ few rounds.
 """
 
 # When False, the four tutorial pages before pairing are omitted.
-INCLUDE_TUTORIAL = True
+INCLUDE_TUTORIAL = False
+
+# When True, participants watch static/voting_treatment.mp4 (about 73 seconds) before the
+# tutorials. Next appears once the video has ended.
+INCLUDE_VIDEO = True
 
 START_MOVES = 40  # move bank at the start of the game
 START_CONTRACT = 0.0  # 0 = commission (keep your points), 1 = wages (equal split)

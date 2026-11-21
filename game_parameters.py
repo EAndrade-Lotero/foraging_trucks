@@ -11,11 +11,11 @@ few rounds.
 """
 
 # When False, the four tutorial pages before pairing are omitted.
-INCLUDE_TUTORIAL = False
+INCLUDE_TUTORIAL = True
 
 # When True, participants watch static/voting_treatment.mp4 (about 73 seconds) before the
 # tutorials. Next appears once the video has ended.
-INCLUDE_VIDEO = False
+INCLUDE_VIDEO = True
 
 START_MOVES = 40  # move bank at the start of the game
 START_CONTRACT = 0.0  # 0 = commission (keep your points), 1 = wages (equal split)
@@ -29,8 +29,8 @@ MOVE_STEP = 5  # the invest slider moves in steps of 5 moves
 FOOD_CONVERSION = 6
 FOOD_MOVES = 8  # moves paid for food every round
 
-N_ROUNDS = 6
-CONTRACT_BLOCK = 2  # rounds played with the same contract before proposing a new one
+N_ROUNDS = 25
+CONTRACT_BLOCK = 5  # rounds played with the same contract before proposing a new one
 
 # Lobby. The game waits for BASE_GROUP_SIZE players, or starts earlier once at
 # least MIN_GROUP_SIZE active players have each moved through

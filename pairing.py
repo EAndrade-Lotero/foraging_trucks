@@ -12,6 +12,8 @@ from typing import Dict, List, Optional, Sequence, Tuple
 from dallinger import db
 from psynet.participant import Participant
 from psynet.sync import SimpleSyncGroup, SyncGroup
+from psynet.trial.chain import ChainNode
+from sqlalchemy.orm.attributes import flag_modified
 
 from .game_parameters import (
     CONTRACT_BLOCK,
@@ -135,12 +137,38 @@ def _greedy_pairs(people, previous):
     return pairs
 
 
-def assign_round_pairs(participant: Participant, round_index: int) -> None:
+def _locked_node(node_id: Optional[int]) -> Optional[ChainNode]:
+    """The round's node, row-locked. Callers take the quorum lock first, then this one."""
+    if node_id is None:
+        return None
+    return (
+        ChainNode.query.with_for_update(of=ChainNode)
+        .populate_existing()
+        .get(int(node_id))
+    )
+
+
+def _update_definition(node: Optional[ChainNode], **changes) -> None:
+    """Write into the node's definition. The column does not track in-place changes."""
+    if node is None:
+        return
+    node.definition = {**(node.definition or {}), **changes}
+    flag_modified(node, "definition")
+
+
+def assign_round_pairs(
+    participant: Participant, round_index: int, node_id: Optional[int] = None
+) -> None:
     """Pair this quorum for ``round_index``, once.
 
     The first participant to enter the round assigns every eligible member.
     Later arrivals find the round already paired and keep the partner they
     were given. A newcomer whose first eligible round is still ahead sits out.
+
+    The group contribution of the round is the group's own agreement, once it has one
+    (proposed after each block). Before that it is the contribution the node inherited
+    from the previous group on this round. The value used is saved in the node's
+    definition (``node_id``).
     """
     quorum = participant.active_sync_groups.get(Quorum.GROUP)
     if quorum is None:
@@ -199,7 +227,13 @@ def assign_round_pairs(participant: Participant, round_index: int) -> None:
         # Pairs append their agreements during the round. The next round reads
         # the average stored on the quorum.
         locked.var.set("round_contracts", [])
-    contract = locked.var.get("contract", START_CONTRACT)
+    node = _locked_node(node_id)
+    inherited = START_CONTRACT
+    if node is not None and (node.definition or {}).get("contribution") is not None:
+        inherited = float(node.definition["contribution"])
+    contract = locked.var.get("contract", None)
+    contract = inherited if contract is None else float(contract)
+    _update_definition(node, contribution=contract)
     tables = []
     for first, second in pairs:
         crew = SimpleSyncGroup(
@@ -255,8 +289,19 @@ def _leave_crew(participant: Participant) -> None:
     crew.remove_participant(participant)
 
 
-def record_pair_contract(participant: Participant, agreed: float) -> None:
-    """Fold one pair's agreement into the quorum contract for the following rounds."""
+def record_pair_contract(
+    participant: Participant,
+    agreed: float,
+    node_id: Optional[int] = None,
+    proposals: Sequence[float] = (),
+    players: Sequence[int] = (),
+) -> None:
+    """Fold one pair's agreement into the quorum contract for the following rounds.
+
+    The agreements are also saved in the definition of the round's node (``node_id``):
+    ``proposals`` lists each pair's players, their proposals and what they agreed on,
+    and ``proposed_contribution`` is the average over the pairs so far.
+    """
     quorum = participant.active_sync_groups.get(Quorum.GROUP)
     if quorum is None:
         return
@@ -269,8 +314,21 @@ def record_pair_contract(participant: Participant, agreed: float) -> None:
         return
     recorded = list(locked.var.get("round_contracts", None) or [])
     recorded.append(float(agreed))
+    average = sum(recorded) / len(recorded)
     locked.var.set("round_contracts", recorded)
-    locked.var.set("contract", sum(recorded) / len(recorded))
+    locked.var.set("contract", average)
+
+    node = _locked_node(node_id)
+    if node is not None:
+        pair_records = list((node.definition or {}).get("proposals") or [])
+        pair_records.append(
+            {
+                "players": [int(person) for person in players],
+                "proposals": [float(value) for value in proposals],
+                "agreed": float(agreed),
+            }
+        )
+        _update_definition(node, proposals=pair_records, proposed_contribution=average)
 
 
 def finish_round(participant: Participant, round_index: int) -> None:

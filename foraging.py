@@ -653,7 +653,15 @@ class ForagingControl(Control):
         # Uneven random hauls, so that test games reach the partner-out and solo branches.
         # FORAGING_BOT_POINTS="6,12" gives richer bots, which survive to the contract proposal.
         low, high = (int(n) for n in os.environ.get("FORAGING_BOT_POINTS", "0,9").split(","))
-        return dict(EMPTY_STATS, coins_collected=random.randint(low, high))
+        # A short walk from a corner, so test runs check that trials keep the path.
+        path = [[0, 0], [1, 0], [1, 1], [2, 1]]
+        return dict(
+            EMPTY_STATS,
+            coins_collected=random.randint(low, high),
+            trajectory=path,
+            move_times=[0.0, 1.5, 3.0, 4.5],
+            moves=len(path) - 1,
+        )
 
 
 class ForagingPage(ModularPage):

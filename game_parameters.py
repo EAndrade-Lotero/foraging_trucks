@@ -28,8 +28,13 @@ MOVE_STEP = 5  # the invest slider moves in steps of 5 moves
 FOOD_CONVERSION = 6
 FOOD_MOVES = 8  # moves paid for food every round
 
-N_ROUNDS = 1
+N_ROUNDS = 10
 CONTRACT_BLOCK = 5  # rounds played with the same contract before proposing a new one
+
+# Each round is a chain, and each node of the chain is one group playing that round
+# (foraging_trucks.py). A chain takes this many groups; after that it is full and no
+# further group can play that round, so keep it above the number of groups you expect.
+MAX_GROUPS_PER_CHAIN = 10
 
 # Lobby. The game waits for BASE_GROUP_SIZE players, or starts earlier once at
 # least MIN_GROUP_SIZE active players have each moved through

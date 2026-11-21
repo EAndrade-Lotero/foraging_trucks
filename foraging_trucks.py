@@ -5,6 +5,8 @@ The PsyNet experiment in experiment.py places this trial maker on the timeline.
 
 import json
 import math
+import re
+from typing import Optional
 
 from markupsafe import Markup
 from psynet.modular_page import ModularPage, NullControl, Prompt, SliderControl
@@ -12,7 +14,7 @@ from psynet.page import InfoPage, WaitPage
 from psynet.participant import Participant
 from psynet.sync import GroupBarrier
 from psynet.timeline import CodeBlock, Event, PageMaker, conditional, join
-from psynet.trial.static import StaticNode, StaticTrial, StaticTrialMaker
+from psynet.trial.chain import ChainNode, ChainTrial, ChainTrialMaker
 
 from .foraging import (
     FORAGING_DURATION,
@@ -29,6 +31,7 @@ from .game_parameters import (
     FOOD_CONVERSION,
     FOOD_MOVES,
     INITIAL_FOOD,
+    MAX_GROUPS_PER_CHAIN,
     MAX_MOVES,
     MIN_GROUP_SIZE,
     N_ROUNDS,
@@ -85,9 +88,47 @@ TRIAL_TIME_ESTIMATE = (
 )
 
 
-# The node only identifies the round slot; the contract lives in the sync group,
-# because it changes with the players' proposals.
-START_NODES = [StaticNode(definition={"slot": i}) for i in range(N_ROUNDS)]
+class RoundNode(ChainNode):
+    """One group (a quorum) playing one round.
+
+    Every round is a chain, and the nodes of a chain are the groups that played that
+    round, one after the other. The definition holds the group contribution:
+
+    * ``slot``: the round (0-based) this chain stands for.
+    * ``generation``: how many groups played this round before this one.
+    * ``contribution``: the group contribution used in the round.
+    * ``inherited_contribution``: what the previous group in the chain used.
+    * ``proposed_contribution`` and ``proposals``: set on the last round of a block, from
+      the pairs' agreements (see pairing.record_pair_contract).
+
+    While a group plays, the contract it shares lives in the sync group, because it changes
+    with the players' proposals. The node keeps a record of it (pairing.assign_round_pairs).
+    """
+
+    def make_next_definition(self, experiment, participant):
+        used = _as_float(self.definition.get("contribution"), START_CONTRACT)
+        return {
+            "slot": self.definition["slot"],
+            "generation": int(self.definition.get("generation", 0)) + 1,
+            "contribution": used,
+            "inherited_contribution": used,
+            "proposed_contribution": None,
+            "proposals": [],
+        }
+
+
+def _root_definition(slot: int) -> dict:
+    return {
+        "slot": slot,
+        "generation": 0,
+        "contribution": START_CONTRACT,
+        "inherited_contribution": START_CONTRACT,
+        "proposed_contribution": None,
+        "proposals": [],
+    }
+
+
+START_NODES = [RoundNode(definition=_root_definition(i)) for i in range(N_ROUNDS)]
 
 
 def _as_float(value, default=0.0):
@@ -344,14 +385,26 @@ def score_round(group, participants, participant, barrier):
                     q.var.set("partner_out_round", len(results(q)))
 
 
+def proposal_node_id(barrier) -> Optional[int]:
+    """The node of the round a proposal barrier belongs to (its id is ``proposal_<node id>``).
+
+    Barrier callbacks must be module-level functions, so they cannot be bound to the node
+    with a closure or ``functools.partial``.
+    """
+    found = re.search(r"proposal_(\d+)", str(barrier.id))
+    return int(found.group(1)) if found else None
+
+
 def average_proposals(group, participants, participant, barrier):
     """Runs when both players have proposed: the next contract is their average.
 
     Each pair's agreement is also folded into the quorum contract, which the
-    next round's pairs start from.
+    next round's pairs start from, and recorded in the definition of the round's
+    node.
     """
     if group.var.get("proposal_barrier", None) == barrier.id:
         return
+    node_id = proposal_node_id(barrier)
     group.var.set("proposal_barrier", barrier.id)
     proposals = [
         _as_float(last_valid_answer(p, "propose_contract"), None) for p in participants
@@ -366,7 +419,13 @@ def average_proposals(group, participants, participant, barrier):
         # The exact average (it can fall between the slider's 10% marks, e.g. 5%).
         agreed = sum(proposals) / len(proposals)
         group.var.set("contract", agreed)
-        record_pair_contract(participants[0], agreed)
+        record_pair_contract(
+            participants[0],
+            agreed,
+            node_id=node_id,
+            proposals=proposals,
+            players=[p.id for p in participants],
+        )
 
 
 CONTRACT_STEPS = 11  # 0%, 10%, ..., 100% group contribution
@@ -826,12 +885,59 @@ def sit_out_page(participant: Participant, node_id: int, round_index: int) -> Mo
     )
 
 
-class ForagingTrucksTrial(StaticTrial):
+def round_path(answer) -> list:
+    """The cells walked on the grid, from the starting square, in order.
+
+    The foraging page reports the server's trajectory. It comes through the browser, so keep
+    only well-formed cells inside the grid.
+    """
+    steps = answer.get("trajectory") if isinstance(answer, dict) else None
+    path = []
+    for step in steps if isinstance(steps, list) else []:
+        try:
+            x, y = int(step[0]), int(step[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if 0 <= x < GRID_SIZE and 0 <= y < GRID_SIZE:
+            path.append([x, y])
+    return path
+
+
+def save_round_path(participant: Participant) -> None:
+    """Keep the path walked this round in the round's trial.
+
+    The trial accumulates this round's answers, so ``participant.answer`` holds the foraging
+    page's answer only if the participant played the board this round. Rounds sat out, or
+    left before the board, get an empty path (never an earlier round's).
+    """
+    trial = participant.current_trial
+    if trial is None:
+        return
+    answers = participant.answer if isinstance(participant.answer, dict) else {}
+    page = answers.get("foraging_page")
+    page = page if isinstance(page, dict) else {}
+    path = round_path(page)
+    times = [_as_float(t, 0.0) for t in (page.get("move_times") or [])][: len(path)]
+    trial.var.set("path", path)
+    trial.var.set("path_times", times)
+    trial.var.set("n_moves", max(0, len(path) - 1))
+    trial.var.set("round_index", int(trial.node.definition["slot"]))
+
+
+class RoundTrial(ChainTrial):
+    """One participant's round. Every member of the group gets their own, on the group's node.
+
+    The trial keeps the path the participant walked on the grid, in ``var["path"]``
+    (see ``save_round_path``); a participant who sat the round out has an empty path.
+    """
+
     time_estimate = TRIAL_TIME_ESTIMATE
     accumulate_answers = True
 
     def show_trial(self, experiment, participant):
-        round_index = self.position
+        # The chain stands for a round, so the node says which one this is.
+        round_index = int(self.node.definition["slot"])
+        node_id = self.node_id
 
         def playing(*elts, label):
             # A player taken out for being away too long skips the rest of the round; the
@@ -842,7 +948,9 @@ class ForagingTrucksTrial(StaticTrial):
         # The round starts by pairing the quorum. A player with no partner sits it out
         # and meets the others again at the quorum's barrier between rounds.
         return join(
-            CodeBlock(lambda participant: assign_round_pairs(participant, round_index)),
+            CodeBlock(
+                lambda participant: assign_round_pairs(participant, round_index, node_id)
+            ),
             CodeBlock(lambda participant: remember_looks(participant, round_index)),
             conditional(
                 f"sit_{round_index}",
@@ -918,12 +1026,45 @@ class ForagingTrucksTrial(StaticTrial):
                     ),
                 ),
             ),
+            CodeBlock(save_round_path),
             CodeBlock(lambda participant: finish_round(participant, round_index)),
         )
 
 
-class ForagingTrialMaker(StaticTrialMaker):
-    """Stops a player's rounds when they are out, or when the group falls below the minimum."""
+class ForagingTrialMaker(ChainTrialMaker):
+    """Plays the rounds as chains, one node per group, in order.
+
+    Stops a player's rounds when they are out, or when the group falls below the minimum.
+    """
+
+    def find_chains(self, participant, experiment):
+        """Offer only the chain of the group's next round, or make the group wait for it.
+
+        A group plays round 1, then round 2, and so on. Left to itself, PsyNet would give the
+        group any free chain, so a busy round (another group is playing it) would be skipped.
+        """
+        next_round = len(self.get_participant_trials(participant))
+        if next_round >= N_ROUNDS:
+            return []
+        chains = [
+            chain
+            for chain in self.network_class.query.filter_by(
+                trial_maker_id=self.id, failed=False
+            ).all()
+            if chain.head is not None
+            and int(chain.head.definition.get("slot", -1)) == next_round
+        ]
+        if not chains:
+            return []
+        if chains[0].full:
+            # Enough groups have played this round: nothing more to offer.
+            return "exit"
+        available = super().find_chains(participant, experiment)
+        if isinstance(available, str):
+            return available
+        offered = [chain for chain in available if chain.id == chains[0].id]
+        # The round's chain is busy (a group is playing it, or its next node is not ready).
+        return offered or "wait"
 
     @staticmethod
     def game_over(participant: Participant) -> bool:
@@ -954,8 +1095,20 @@ class ForagingTrialMaker(StaticTrialMaker):
 
 trial_maker = ForagingTrialMaker(
     id_="foraging_trucks",
-    trial_class=ForagingTrucksTrial,
-    nodes=START_NODES,
+    trial_class=RoundTrial,
+    node_class=RoundNode,
+    # Each round is a chain; a node is one group playing it. The next group to reach
+    # the round plays the next node, which inherits the group contribution.
+    chain_type="across",
+    start_nodes=START_NODES,
+    # The order of the rounds is decided by find_chains (PsyNet's planned "listed" order
+    # cannot be combined with that override, and would skip a busy round).
+    # One trial per node is the leader's claim: the sync group's followers join the
+    # leader's node, so a node is exactly one group.
+    trials_per_node=1,
+    max_nodes_per_chain=MAX_GROUPS_PER_CHAIN,
+    # A player who drops out must not fail the next group's node.
+    propagate_failure=False,
     expected_trials_per_participant=N_ROUNDS,
     max_trials_per_participant=N_ROUNDS,
     recruit_mode="n_participants",

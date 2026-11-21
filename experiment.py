@@ -12,7 +12,7 @@ from psynet.timeline import Event, PageMaker, Timeline
 
 from .foraging import EnableForaging, patch_dallinger_sockets
 from .avatar import avatar_page
-from .foraging_trucks import summary_page, trial_maker, tutorial_page
+from .foraging_trucks import RoundTrial, summary_page, trial_maker, tutorial_page
 from .game_parameters import (
     BASE_GROUP_SIZE,
     INCLUDE_TUTORIAL,
@@ -197,3 +197,17 @@ class Exp(psynet.experiment.Experiment):
         assert len(bot.var.get("results", [])) == n
         if not os.environ.get("FORAGING_TEST_DROPOUT"):  # the bot that leaves may have none
             assert n >= 1
+        # Every round has the participant's own trial, and each keeps the path walked.
+        trials = RoundTrial.query.filter_by(participant_id=bot.id).all()
+        assert len(trials) <= N_ROUNDS
+        if not os.environ.get("FORAGING_TEST_DROPOUT"):
+            # A bot that runs out of food stops early, but every round it played has a trial.
+            assert len(trials) >= n
+        assert len({t.node.definition["slot"] for t in trials}) == len(trials)
+        for trial in trials:
+            assert isinstance(trial.var.get("path"), list)
+            assert trial.var.get("n_moves") == max(0, len(trial.var.get("path")) - 1)
+            if not os.environ.get("FORAGING_TEST_DROPOUT"):
+                # Nobody sits out with two bots: the bot's walk (foraging.py) is on every trial.
+                assert trial.var.get("path") == [[0, 0], [1, 0], [1, 1], [2, 1]]
+                assert trial.var.get("path_times") == [0.0, 1.5, 3.0, 4.5]

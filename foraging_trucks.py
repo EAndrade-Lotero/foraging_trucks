@@ -9,7 +9,7 @@ import re
 from typing import Optional
 
 from markupsafe import Markup
-from psynet.modular_page import ModularPage, NullControl, Prompt, SliderControl
+from psynet.modular_page import ModularPage, NullControl, SliderControl
 from psynet.page import InfoPage, WaitPage
 from psynet.participant import Participant
 from psynet.sync import GroupBarrier
@@ -31,7 +31,6 @@ from .game_parameters import (
     FOOD_CONVERSION,
     FOOD_MOVES,
     INITIAL_FOOD,
-    MAX_GROUPS_PER_CHAIN,
     MAX_FOOD_TO_INVEST,
     MAX_MOVES,
     MIN_GROUP_SIZE,
@@ -42,6 +41,11 @@ from .game_parameters import (
     START_MOVES,
 )
 from .avatar import SHOW_CHOSEN_AVATARS, avatars_for, hex_color, own_avatar
+from .custom_front_end import (
+    TimedModularPage,
+    TimeoutPrompt,
+    persist_page_start_time,
+)
 from .grouping import Pair, Quorum
 from .pairing import (
     CREW_GROUP,
@@ -49,6 +53,7 @@ from .pairing import (
     finish_round,
     proposes_this_round,
     record_pair_contract,
+    whole_percent,
 )
 from .tutorial import (
     CONTRACT_ENDS,
@@ -73,8 +78,39 @@ CONTRACT_SECONDS = 20
 # (Thomas, 12-oct). It is longer than the longest normal stretch between two barriers (a
 # 60-second round plus reading). BARRIER_MAX_WAIT_SECONDS only fails a player stuck waiting.
 PARTNER_TIMEOUT_SECONDS = 150
+# The same limit for the whole group, counted from the last time the group passed the barrier
+# between rounds: a player must finish a whole round (every page below at its time limit, the
+# board and the waits at the pair barriers) before it runs out.
+ROUND_TIMEOUT_SECONDS = 240
 BARRIER_MAX_WAIT_SECONDS = 300
 BARRIER_EXPECTED_WAIT = 10
+# Time limits of the pages a player can leave idle. At zero the page sends what it holds
+# (the slider where it is, nothing for the score page) and the player moves on, so an idle
+# player reaches the next barrier before it kicks them (custom_front_end.TimedModularPage).
+MOVES_TIMEOUT_SECONDS = 45
+SCORE_TIMEOUT_SECONDS = 30
+CONTRACT_TIMEOUT_SECONDS = 45
+# Slack for loading pages and the waits at the barriers.
+TIMEOUT_MARGIN_SECONDS = 30
+_longest_pair_stretch = max(
+    PAIRING_SECONDS + MOVES_TIMEOUT_SECONDS,  # from pairing to the moves barrier
+    FORAGING_DURATION,  # from the moves barrier to the foraging barrier
+    SCORE_TIMEOUT_SECONDS + CONTRACT_TIMEOUT_SECONDS,  # from the foraging barrier to the proposals
+)
+assert _longest_pair_stretch + TIMEOUT_MARGIN_SECONDS <= PARTNER_TIMEOUT_SECONDS, (
+    "A pair barrier can kick a player who is only slow: shorten the page time limits or raise "
+    "PARTNER_TIMEOUT_SECONDS."
+)
+assert (
+    PAIRING_SECONDS
+    + MOVES_TIMEOUT_SECONDS
+    + FORAGING_DURATION
+    + SCORE_TIMEOUT_SECONDS
+    + CONTRACT_TIMEOUT_SECONDS
+    + TIMEOUT_MARGIN_SECONDS
+    <= ROUND_TIMEOUT_SECONDS
+    < BARRIER_MAX_WAIT_SECONDS
+), "A round can outlast ROUND_TIMEOUT_SECONDS: shorten the page time limits or raise it."
 # Longest wait for a partner before the game; after it the study ends (PsyNet fails the
 # participant at the grouper) and they are paid for their time. Prolific asks to say both
 # before the study starts.
@@ -90,29 +126,26 @@ TRIAL_TIME_ESTIMATE = (
 
 
 class RoundNode(ChainNode):
-    """One group (a quorum) playing one round.
+    """One round of one group.
 
-    Every round is a chain, and the nodes of a chain are the groups that played that
-    round, one after the other. The definition holds the group contribution:
+    A group's chain holds all its rounds, one node per round, in order: the node of round r
+    is the parent of the node of round r + 1. PsyNet creates each next node when the previous
+    round's trial finishes. The chain belongs to the group (its sync group), so the group's
+    members all play on it. The definition holds:
 
-    * ``slot``: the round (0-based) this chain stands for.
-    * ``generation``: how many groups played this round before this one.
+    * ``slot``: the round (0-based) this node is.
     * ``contribution``: the group contribution used in the round.
-    * ``inherited_contribution``: what the previous group in the chain used.
-    * ``proposed_contribution`` and ``proposals``: set on the last round of a block, from
+    * ``proposed_contribution`` and ``proposals``: set on the round that ends a block, from
       the pairs' agreements (see pairing.record_pair_contract).
 
-    While a group plays, the contract it shares lives in the sync group, because it changes
-    with the players' proposals. The node keeps a record of it (pairing.assign_round_pairs).
+    While the group plays, the contribution lives in the sync group (it changes with the
+    players' proposals); pairing.assign_round_pairs copies the value in use into the node.
     """
 
     def make_next_definition(self, experiment, participant):
-        used = _as_float(self.definition.get("contribution"), START_CONTRACT)
         return {
-            "slot": self.definition["slot"],
-            "generation": int(self.definition.get("generation", 0)) + 1,
-            "contribution": used,
-            "inherited_contribution": used,
+            "slot": int(self.definition["slot"]) + 1,
+            "contribution": _as_float(self.definition.get("contribution"), START_CONTRACT),
             "proposed_contribution": None,
             "proposals": [],
         }
@@ -121,15 +154,15 @@ class RoundNode(ChainNode):
 def _root_definition(slot: int) -> dict:
     return {
         "slot": slot,
-        "generation": 0,
         "contribution": START_CONTRACT,
-        "inherited_contribution": START_CONTRACT,
         "proposed_contribution": None,
         "proposals": [],
     }
 
 
-START_NODES = [RoundNode(definition=_root_definition(i)) for i in range(N_ROUNDS)]
+def group_start_nodes(participant) -> list:
+    """The group's chain starts at round 1. PsyNet calls this for the group's leader."""
+    return [RoundNode(definition=_root_definition(0))]
 
 
 def _as_float(value, default=0.0):
@@ -174,9 +207,8 @@ def signed(n: int) -> str:
 
 
 def contribution_percent(contract: float) -> str:
-    """The group-contribution slider, as a percent. Averages can fall between the 10% marks."""
-    pct = 100 * _as_float(contract)
-    return str(int(round(pct))) if abs(pct - round(pct)) < 1e-6 else f"{pct:.1f}"
+    """The group contribution as a whole percent (the game stores it that way, see whole_percent)."""
+    return str(int(round(100 * _as_float(contract))))
 
 
 def contract_label(contract: float) -> str:
@@ -428,8 +460,8 @@ def average_proposals(group, participants, participant, barrier):
         participants[0].var.set("partner_out_round", len(results(participants[0])) + 1)
         participants[0].var.set("partner_left", True)
     if proposals:
-        # The exact average (it can fall between the slider's 10% marks, e.g. 5%).
-        agreed = sum(proposals) / len(proposals)
+        # The average, as a whole percent (it can fall between the slider's 10% marks, e.g. 5%).
+        agreed = whole_percent(sum(proposals) / len(proposals))
         group.var.set("contract", agreed)
         record_pair_contract(
             participants[0],
@@ -458,6 +490,9 @@ def crew_barrier(id_: str, text: str, on_release=None) -> GroupBarrier:
         max_wait_time=BARRIER_MAX_WAIT_SECONDS,
         timeout_between_barriers_time=PARTNER_TIMEOUT_SECONDS,
         timeout_between_barriers_action="kick",
+        # A player whose partner was kicked before the barrier may have no pair left; they
+        # pass through (note_if_kicked then takes them out) instead of raising an error.
+        skip_if_not_in_group=True,
         on_release=on_release,
     )
 
@@ -622,6 +657,13 @@ def food_table(participant: Participant) -> str:
     return "<table class='points-table'>" + "".join(rows) + "</table>"
 
 
+def start_page_timer(label: str, round_index: int) -> CodeBlock:
+    """Stamp the start of a timed page, so that reloading it does not restart the countdown."""
+    return CodeBlock(
+        lambda participant: persist_page_start_time(participant, f"{label}_{round_index}")
+    )
+
+
 def buy_moves_page(participant: Participant, round_index: int) -> ModularPage:
     """Same layout as tutorial 1: the food bank turns into moves as the slider moves."""
     accumulated = accumulated_food(participant)
@@ -681,9 +723,14 @@ def buy_moves_page(participant: Participant, round_index: int) -> ModularPage:
         {frame}
         """
     )
-    return ModularPage(
+    return TimedModularPage(
         "buy_moves",
-        Prompt(prompt),
+        TimeoutPrompt(
+            round_=round_index,
+            timeout=MOVES_TIMEOUT_SECONDS,
+            text=prompt,
+            submit_current_answer=True,  # at zero, invest what the slider shows
+        ),
         slider,
         time_estimate=MOVES_SECONDS,
     )
@@ -702,7 +749,7 @@ def ledger(initial_food: int, invested_food: int, net: int, food_bank: int) -> s
     """
 
 
-def score_page(participant: Participant) -> InfoPage:
+def score_page(participant: Participant) -> ModularPage:
     r = results(participant)[-1]
     you, partner_color = colors(participant)
     spent = int(r.get("food_spent", 0) or 0)
@@ -747,10 +794,16 @@ def score_page(participant: Participant) -> InfoPage:
                    paired again next round.</p>"""
     else:
         tail = ""
-    return InfoPage(
-        Markup(f"{body}{table}{tail}"),
+    return TimedModularPage(
+        "score",
+        TimeoutPrompt(
+            round_=int(r["round"]),
+            timeout=SCORE_TIMEOUT_SECONDS,
+            text=Markup(f"{body}{table}{tail}"),
+            submit_current_answer=True,  # the page has nothing to answer, as with Next
+        ),
+        NullControl(),
         time_estimate=SCORE_SECONDS,
-        requires_full_page_reload=True,  # split_scene uses inline scripts
     )
 
 
@@ -773,9 +826,14 @@ def propose_contract_page(participant: Participant) -> ModularPage:
         {slider_frame("contract-slider", *CONTRACT_ENDS, CONTRACT_STEPS)}
         """
     )
-    return ModularPage(
+    return TimedModularPage(
         "propose_contract",
-        Prompt(prompt),
+        TimeoutPrompt(
+            round_=int(r["round"]),
+            timeout=CONTRACT_TIMEOUT_SECONDS,
+            text=prompt,
+            submit_current_answer=True,  # at zero, propose what the slider shows
+        ),
         SliderControl(
             start_value=round(contract * 10) / 10,  # the nearest mark of the slider
             min_value=0,
@@ -786,7 +844,6 @@ def propose_contract_page(participant: Participant) -> ModularPage:
             bot_response=0.5,
         ),
         time_estimate=CONTRACT_SECONDS,
-        requires_full_page_reload=True,  # split_scene uses inline scripts
     )
 
 
@@ -866,7 +923,7 @@ def sit_out_page(participant: Participant, node_id: int, round_index: int) -> Mo
         )
         # The page advances once every watched table has finished. This limit is
         # only a backstop, past buying moves, the partner barrier, and the board.
-        watch_seconds = MOVES_SECONDS + FORAGING_DURATION + 45
+        watch_seconds = PAIRING_SECONDS + MOVES_TIMEOUT_SECONDS + FORAGING_DURATION + 45
     return ModularPage(
         "sit_out",
         SitOutPrompt(
@@ -976,6 +1033,7 @@ class RoundTrial(ChainTrial):
                             if_playing(lambda participant: pairing_page(participant, round_index)),
                             time_estimate=PAIRING_SECONDS,
                         ),
+                        start_page_timer("buy_moves", round_index),
                         PageMaker(
                             if_playing(lambda participant: buy_moves_page(participant, round_index)),
                             time_estimate=MOVES_SECONDS,
@@ -1011,7 +1069,10 @@ class RoundTrial(ChainTrial):
                     conditional(
                         f"score_{round_index}",
                         lambda participant: not left_game(participant),
-                        PageMaker(score_page, time_estimate=SCORE_SECONDS),
+                        join(
+                            start_page_timer("score", round_index),
+                            PageMaker(score_page, time_estimate=SCORE_SECONDS),
+                        ),
                     ),
                     # Players who are out, alone or gone do not propose (and must not wait at a barrier).
                     conditional(
@@ -1023,6 +1084,7 @@ class RoundTrial(ChainTrial):
                             and not participant.var.get("sitting_out", False)
                         ),
                         join(
+                            start_page_timer("propose_contract", round_index),
                             PageMaker(if_playing(propose_contract_page), time_estimate=CONTRACT_SECONDS),
                             crew_barrier(
                                 f"proposal_{self.node_id}",
@@ -1040,39 +1102,10 @@ class RoundTrial(ChainTrial):
 
 
 class ForagingTrialMaker(ChainTrialMaker):
-    """Plays the rounds as chains, one node per group, in order.
+    """Plays each group's chain, one node per round, in order.
 
     Stops a player's rounds when they are out, or when the group falls below the minimum.
     """
-
-    def find_chains(self, participant, experiment):
-        """Offer only the chain of the group's next round, or make the group wait for it.
-
-        A group plays round 1, then round 2, and so on. Left to itself, PsyNet would give the
-        group any free chain, so a busy round (another group is playing it) would be skipped.
-        """
-        next_round = len(self.get_participant_trials(participant))
-        if next_round >= N_ROUNDS:
-            return []
-        chains = [
-            chain
-            for chain in self.network_class.query.filter_by(
-                trial_maker_id=self.id, failed=False
-            ).all()
-            if chain.head is not None
-            and int(chain.head.definition.get("slot", -1)) == next_round
-        ]
-        if not chains:
-            return []
-        if chains[0].full:
-            # Enough groups have played this round: nothing more to offer.
-            return "exit"
-        available = super().find_chains(participant, experiment)
-        if isinstance(available, str):
-            return available
-        offered = [chain for chain in available if chain.id == chains[0].id]
-        # The round's chain is busy (a group is playing it, or its next node is not ready).
-        return offered or "wait"
 
     @staticmethod
     def game_over(participant: Participant) -> bool:
@@ -1105,17 +1138,19 @@ trial_maker = ForagingTrialMaker(
     id_="foraging_trucks",
     trial_class=RoundTrial,
     node_class=RoundNode,
-    # Each round is a chain; a node is one group playing it. The next group to reach
-    # the round plays the next node, which inherits the group contribution.
-    chain_type="across",
-    start_nodes=START_NODES,
-    # The order of the rounds is decided by find_chains (PsyNet's planned "listed" order
-    # cannot be combined with that override, and would skip a busy round).
+    # One chain per group (within-participant chains, shared through the sync group):
+    # the leader gets the group's chain at its start, and each node is one round.
+    chain_type="within",
+    start_nodes=group_start_nodes,
+    chains_per_participant=1,
     # One trial per node is the leader's claim: the sync group's followers join the
-    # leader's node, so a node is exactly one group.
+    # leader's node, so a node is exactly one round of the group.
     trials_per_node=1,
-    max_nodes_per_chain=MAX_GROUPS_PER_CHAIN,
-    # A player who drops out must not fail the next group's node.
+    max_nodes_per_chain=N_ROUNDS,
+    # The next round's node appears once this round's trial finishes. Wait for it rather
+    # than ending the game when it is not there yet.
+    wait_for_networks=True,
+    # A player who drops out must not fail the group's next round.
     propagate_failure=False,
     expected_trials_per_participant=N_ROUNDS,
     max_trials_per_participant=N_ROUNDS,
@@ -1127,6 +1162,6 @@ trial_maker = ForagingTrialMaker(
     # The default wait (45 s) would fail a player whose partner is still reading the result.
     sync_group_max_wait_time=BARRIER_MAX_WAIT_SECONDS,
     # Between rounds PsyNet waits for the quorum at its own barrier: same rule as ours.
-    sync_group_timeout_between_barriers_time=PARTNER_TIMEOUT_SECONDS,
+    sync_group_timeout_between_barriers_time=ROUND_TIMEOUT_SECONDS,
     sync_group_timeout_between_barriers_action="kick",
 )

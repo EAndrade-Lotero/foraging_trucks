@@ -6,6 +6,7 @@ avoids repeating the previous round's partner when another partner is free,
 and a player who just sat out is chosen to play before someone who played.
 """
 
+import math
 import random
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -21,6 +22,15 @@ from .game_parameters import (
     N_ROUNDS,
     START_CONTRACT,
 )
+
+
+def whole_percent(contract: float) -> float:
+    """A group contribution rounded to a whole percent (half up).
+
+    Proposals come in 10% steps, but averages do not (5%, 52.5%), so every contribution the
+    game stores is a whole percent, returned as a fraction (0.52).
+    """
+    return math.floor(100 * float(contract) + 0.5) / 100
 
 
 def proposes_this_round(round_index: int) -> bool:
@@ -166,8 +176,8 @@ def assign_round_pairs(
     were given. A newcomer whose first eligible round is still ahead sits out.
 
     The group contribution of the round is the group's own agreement, once it has one
-    (proposed after each block). Before that it is the contribution the node inherited
-    from the previous group on this round. The value used is saved in the node's
+    (proposed after each block). Before that it is the contribution of the group's
+    previous round (the node's ``contribution``). The value used is saved in the node's
     definition (``node_id``).
     """
     quorum = participant.active_sync_groups.get(Quorum.GROUP)
@@ -180,7 +190,9 @@ def assign_round_pairs(
     )
     if locked is None:
         return
-    if int(locked.var.get("paired_round", -1) or -1) == int(round_index):
+    paired_round = locked.var.get("paired_round", None)
+    # Round 0 is a valid value, so compare against None rather than testing truthiness.
+    if paired_round is not None and int(paired_round) == int(round_index):
         # A player who reached this round after the pairs were assigned, including
         # a top-up, sits it out. Everyone already seated keeps their partner.
         in_crew = CREW_GROUP in participant.active_sync_groups
@@ -314,7 +326,7 @@ def record_pair_contract(
         return
     recorded = list(locked.var.get("round_contracts", None) or [])
     recorded.append(float(agreed))
-    average = sum(recorded) / len(recorded)
+    average = whole_percent(sum(recorded) / len(recorded))
     locked.var.set("round_contracts", recorded)
     locked.var.set("contract", average)
 

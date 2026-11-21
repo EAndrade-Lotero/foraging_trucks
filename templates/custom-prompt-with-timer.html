@@ -1,0 +1,147 @@
+{% macro timeout(config) %}
+
+<style>
+    /* Countdown (top right) */
+    .timer-container {
+        position: fixed;
+        top: 12px;
+        right: 12px;
+        background: white;
+        padding: 8px 14px;
+        border-radius: 12px;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+        font-size: 18px;
+        font-weight: bold;
+        z-index: 10;
+    }
+
+    .timer-container.timer-low {
+        color: #c0392b;
+    }
+
+    /* Round label (top left), when show_rounds is on */
+    .phase-label {
+        position: fixed;
+        top: 12px;
+        left: 12px;
+        background: white;
+        padding: 8px 14px;
+        border-radius: 12px;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+        font-size: 18px;
+        font-weight: bold;
+        white-space: nowrap;
+        z-index: 10;
+    }
+
+    #prompt-text {
+        text-align: {{ config.text_align }};
+    }
+</style>
+
+<div id="prompt-text">
+    {{ config.text_html }}
+</div>
+
+{% if config.show_rounds is sameas true or config.show_rounds == "True" %}
+<div class="phase-label">
+    Round {{ config.round }} / {{ config.num_rounds }}
+</div>
+{% endif %}
+
+<div class="timer-container" id="timer"></div>
+
+<script>
+(function () {
+    const timeoutSeconds = {{ config.timeoutSeconds }};
+    const submitCurrentAnswer = {{ config.submitCurrentAnswer | tojson }};
+    const timeoutAnswer = {{ config.timeoutAnswer | tojson }};
+    const serverStartTime = {% if config.currentTime is not none %}{{ config.currentTime }}{% else %}null{% endif %};
+    const DEADLINE_STORAGE_PREFIX = "psynet_page_deadline_";
+    const LOW_SECONDS = 10;
+
+    function deadlineStorageKey() {
+        {% if config.timerStorageKey is not none %}
+        return DEADLINE_STORAGE_PREFIX + {{ config.timerStorageKey | tojson }};
+        {% else %}
+        const pageUuid = (typeof psynet !== "undefined" && psynet.pageUuid) ? psynet.pageUuid : null;
+        return pageUuid ? DEADLINE_STORAGE_PREFIX + pageUuid : null;
+        {% endif %}
+    }
+
+    // The deadline comes from the server start time, so reloading the page keeps it.
+    function resolvePageDeadline() {
+        const storageKey = deadlineStorageKey();
+        if (storageKey) {
+            const stored = sessionStorage.getItem(storageKey);
+            if (stored !== null) {
+                return parseFloat(stored);
+            }
+        }
+        const startTime = serverStartTime !== null ? serverStartTime : (Date.now() / 1000);
+        const deadline = startTime + timeoutSeconds;
+        if (storageKey) {
+            sessionStorage.setItem(storageKey, String(deadline));
+        }
+        return deadline;
+    }
+
+    const pageDeadline = resolvePageDeadline();
+    let timedOut = false;
+    let timerInterval = null;
+    let retryInterval = null;
+
+    function remainingSeconds() {
+        return Math.max(0, Math.ceil(pageDeadline - Date.now() / 1000));
+    }
+
+    function trySubmit() {
+        // The page may not be ready yet (or a submission is already on its way).
+        if (!psynet.pageReady || psynet.nextPagePending) {
+            return;
+        }
+        if (submitCurrentAnswer) {
+            // Same path as the Next button: the control hands over its own answer.
+            psynet.submitResponse();
+        } else {
+            psynet.nextPage(timeoutAnswer);
+        }
+    }
+
+    function onTimeout() {
+        timedOut = true;
+        clearInterval(timerInterval);
+        const timer = document.getElementById("timer");
+        timer.textContent = "Time's up!";
+        timer.classList.add("timer-low");
+        try {
+            psynet.trial.registerEvent("timeout", {info: "timeout"});
+        } catch (e) {
+            // The trial may not be initialised yet; the event is only a log entry.
+        }
+        trySubmit();
+        // If the submission was blocked or failed, keep trying until the page goes away.
+        retryInterval = setInterval(trySubmit, 2000);
+    }
+
+    function updateTimer() {
+        const left = remainingSeconds();
+        if (left <= 0) {
+            onTimeout();
+            return;
+        }
+        const minutes = Math.floor(left / 60);
+        const seconds = left % 60;
+        const timer = document.getElementById("timer");
+        timer.textContent = "Time left: " + minutes + ":" + (seconds < 10 ? "0" + seconds : seconds);
+        timer.classList.toggle("timer-low", left <= LOW_SECONDS);
+    }
+
+    updateTimer();
+    if (!timedOut) {
+        timerInterval = setInterval(updateTimer, 1000);
+    }
+})();
+</script>
+
+{% endmacro %}

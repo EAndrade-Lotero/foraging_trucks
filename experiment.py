@@ -159,7 +159,8 @@ class Exp(psynet.experiment.Experiment):
     )
 
     # Two bots still exercise the game: the lobby short-starts at MIN_GROUP_SIZE.
-    test_n_bots = MIN_GROUP_SIZE
+    # FORAGING_TEST_BOTS=4 plays one group of four (two pairs) instead of one pair.
+    test_n_bots = int(os.environ.get("FORAGING_TEST_BOTS", MIN_GROUP_SIZE))
 
     def test_serial_run_bots(self, bots: List[BotDriver]):
         # The bots have to advance in lockstep, otherwise the first bot would sit at
@@ -204,6 +205,12 @@ class Exp(psynet.experiment.Experiment):
             # A bot that runs out of food stops early, but every round it played has a trial.
             assert len(trials) >= n
         assert len({t.node.definition["slot"] for t in trials}) == len(trials)
+        # The group's rounds are one chain, one node per round, in round order. Both bots
+        # play one group, so every trial of the experiment is on that single chain.
+        assert len({t.node.network_id for t in trials}) == 1
+        assert len({t.node.network_id for t in RoundTrial.query.all()}) == 1
+        chain = sorted(trials, key=lambda t: t.node.degree)
+        assert [t.node.definition["slot"] for t in chain] == list(range(len(chain)))
         for trial in trials:
             assert isinstance(trial.var.get("path"), list)
             assert trial.var.get("n_moves") == max(0, len(trial.var.get("path")) - 1)

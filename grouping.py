@@ -281,7 +281,8 @@ class GroupRound:
             return False
         # Set when this round's pairs are assigned, cleared conceptually by
         # moving paired_round on to the next round. A late arrival waits.
-        return int(quorum.var.get("paired_round", -1) or -1) == int(round_index)
+        paired_round = quorum.var.get("paired_round", None)
+        return paired_round is not None and int(paired_round) == int(round_index)
 
     @staticmethod
     def first_eligible_round(participant: Participant) -> int:

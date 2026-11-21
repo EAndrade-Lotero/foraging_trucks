@@ -61,7 +61,12 @@
         return (whole || !half ? String(whole) : "") + (half ? "\u00bd" : "");
     }
 
-    function pacman(color, ring) {
+    // With an avatar (static/pacman_avatar.js loaded), the pac-man wears its hat and eyes.
+    function pacman(color, ring, avatar) {
+        if (avatar && window.PacAvatar) {
+            return PacAvatar.svg(avatar, { size: 34, ring: ring, ringColor: "#333" })
+                .replace('class="pac-avatar"', 'class="pac-avatar" style="height:44px;margin-top:-10px"');
+        }
         return '<svg viewBox="-1 -1 2 2">'
             + (ring ? '<circle r=".92" fill="none" stroke="#fff" stroke-width=".12"/>' : "")
             + '<path d="M0 0 L.68 -.37 A.78 .78 0 1 0 .68 .37 Z" fill="' + color + '"/></svg>';
@@ -73,6 +78,8 @@
             partner: opts.partnerColor || "#e74c3c",
             youLabel: opts.youLabel || "You",
             partnerLabel: opts.partnerLabel || "Partner",
+            youAvatar: opts.youAvatar || null,
+            partnerAvatar: opts.partnerAvatar || null,
         };
     }
 
@@ -83,8 +90,8 @@
         root.classList.add("split-scene");
         root.style.height = height + "px";
         root.innerHTML =
-            '<div class="ss-who" style="top:' + (laneY.you - 26) + 'px">' + pacman(c.you, true) + c.youLabel + "</div>"
-            + '<div class="ss-who" style="top:' + (laneY.partner - 26) + 'px">' + pacman(c.partner, false) + c.partnerLabel + "</div>"
+            '<div class="ss-who" style="top:' + (laneY.you - 26) + 'px">' + pacman(c.you, true, c.youAvatar) + c.youLabel + "</div>"
+            + '<div class="ss-who" style="top:' + (laneY.partner - 26) + 'px">' + pacman(c.partner, false, c.partnerAvatar) + c.partnerLabel + "</div>"
             + '<div class="ss-lane" style="top:' + (laneY.you - 23) + 'px"></div>'
             + '<div class="ss-lane" style="top:' + (laneY.partner - 23) + 'px"></div>'
             + '<div class="ss-equal" data-row="you" style="top:' + (laneY.you - 15) + 'px"><span>equal</span></div>'

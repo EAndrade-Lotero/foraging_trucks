@@ -37,7 +37,8 @@ from .game_parameters import (
     START_CONTRACT,
     START_MOVES,
 )
-from .grouping import Quorum
+from .avatar import SHOW_CHOSEN_AVATARS, avatars_for, hex_color, own_avatar
+from .grouping import Pair, Quorum
 from .pairing import (
     CREW_GROUP,
     assign_round_pairs,
@@ -59,6 +60,8 @@ GROUP_TYPE = CREW_GROUP
 # is paid. A player whose bank reaches zero is out; their partner plays on alone.
 TUTORIAL_SECONDS = 30
 MOVES_SECONDS = 20
+# The page before buying moves that shows who you play with this round. It moves on alone.
+PAIRING_SECONDS = 5
 SCORE_SECONDS = 20
 CONTRACT_SECONDS = 20
 # A player who does not reach a barrier within PARTNER_TIMEOUT_SECONDS of their partner (closed
@@ -73,7 +76,8 @@ BARRIER_EXPECTED_WAIT = 10
 # before the study starts.
 PARTNER_WAIT_SECONDS = 120
 TRIAL_TIME_ESTIMATE = (
-    MOVES_SECONDS
+    PAIRING_SECONDS
+    + MOVES_SECONDS
     + BARRIER_EXPECTED_WAIT
     + FORAGING_DURATION
     + SCORE_SECONDS
@@ -410,9 +414,105 @@ def tutorial_page() -> InfoPage:
     )
 
 
+def remember_looks(participant: Participant, round_index: int) -> None:
+    """Fix how this participant sees everyone in their group this round (avatar.py).
+
+    Stored so that the pairing page, the board, the score and the proposal pages, and
+    the sit-out view all show the same disguises, also after a reload.
+    """
+    quorum = participant.active_sync_groups.get(Quorum.GROUP)
+    ids = [p.id for p in quorum.active_participants] if quorum is not None else []
+    partner = Pair.current(participant)
+    if partner is not None:
+        ids.append(int(partner))
+    ids.append(participant.id)
+    participant.var.set("looks", {
+        "round": int(round_index),
+        "avatars": avatars_for(participant, sorted(set(ids)), round_index),
+    })
+
+
+def looks(participant: Participant) -> dict:
+    """Avatar of each group member, by participant id, as this participant sees them now."""
+    stored = participant.var.get("looks", None) or {}
+    shown = dict(stored.get("avatars") or {})
+    shown[str(participant.id)] = own_avatar(participant)
+    return shown
+
+
+def partner_avatar(participant: Participant):
+    partner = Pair.current(participant)
+    return None if partner is None else looks(participant).get(str(partner))
+
+
 def colors(participant: Participant) -> tuple:
-    """Each participant sees themself in yellow and their partner in red."""
-    return PLAYER_COLORS[0], PLAYER_COLORS[1]
+    """Your own pac-man's colour, and your partner's colour as you see them this round."""
+    partner = partner_avatar(participant)
+    return (
+        hex_color(own_avatar(participant)),
+        hex_color(partner) if partner else PLAYER_COLORS[1],
+    )
+
+
+def pairing_page(participant: Participant, round_index: int) -> InfoPage:
+    """Who you play with this round: your pac-man, your partner's, and the rest of the group.
+
+    Everyone but you wears a new random look each round, so the page shows that you are
+    in a group without telling you whom you met before.
+    """
+    shown = looks(participant)
+    me = str(participant.id)
+    partner = Pair.current(participant)
+    partner = None if partner is None else str(partner)
+    group = [pid for pid in sorted(shown, key=int) if pid not in (me, partner)]
+
+    def pac(avatar: dict, size: int, ring: bool = False) -> str:
+        return (f'<span class="pac-slot" data-avatar=\'{json.dumps(avatar)}\' '
+                f'data-size="{size}" data-ring="{"1" if ring else ""}"></span>')
+
+    others = "".join(pac(shown[pid], 34) for pid in group)
+    group_line = (
+        f"""<div class="match-group"><div class="match-group-label">The rest of your group
+            this round ({len(group)} more {"player" if len(group) == 1 else "players"})</div>
+            <div class="match-group-row">{others}</div></div>"""
+        if group else ""
+    )
+    partner_html = (
+        f'{pac(shown[partner], 88)}<div class="match-name">Your partner</div>'
+        if partner and partner in shown else '<div class="match-name">No partner</div>'
+    )
+    return InfoPage(
+        Markup(
+            f"""
+            <h3>Round {round_index + 1} of {N_ROUNDS}: your partner</h3>
+            <p>This round you are paired at random with another player from your group.
+            {"Everyone appears as they made their pac-man." if SHOW_CHOSEN_AVATARS else "Everyone except you looks different every round."}</p>
+            <div class="match-card">
+                <div class="match-side">{pac(shown[me], 88, ring=True)}<div class="match-name">You</div></div>
+                <div class="match-vs">&amp;</div>
+                <div class="match-side">{partner_html}</div>
+            </div>
+            {group_line}
+            <script src="/static/pacman_avatar.js"></script>
+            <script>
+            document.querySelectorAll(".pac-slot").forEach(function (el) {{
+                el.innerHTML = PacAvatar.svg(JSON.parse(el.dataset.avatar),
+                    {{ size: +el.dataset.size, ring: !!el.dataset.ring }});
+            }});
+            </script>
+            """
+        ),
+        time_estimate=PAIRING_SECONDS,
+        requires_full_page_reload=True,  # inline script draws the avatars
+        events={
+            "autoAdvance": Event(
+                is_triggered_by="trialStart",
+                delay=float(PAIRING_SECONDS),
+                once=True,
+                js="psynet.nextPage()",
+            ),
+        },
+    )
 
 
 def food_panel(accumulated: int) -> str:
@@ -553,10 +653,12 @@ def score_page(participant: Participant) -> InfoPage:
         collected = split_scene(
             "collected-scene", "", own, int(r["other"]), 0,
             you_color=you, partner_color=partner_color, fixed=True, caption=False, legend=False,
+            you_avatar=own_avatar(participant), partner_avatar=partner_avatar(participant),
         )
         kept = split_scene(
             "kept-scene", "", own, int(r["other"]), r["contract"],
             you_color=you, partner_color=partner_color, fixed=True, caption=False, legend=False,
+            you_avatar=own_avatar(participant), partner_avatar=partner_avatar(participant),
         )
         body = f"""
             <p class="score-heading">Food collected this round:</p>
@@ -581,6 +683,7 @@ def score_page(participant: Participant) -> InfoPage:
     return InfoPage(
         Markup(f"{body}{table}{tail}"),
         time_estimate=SCORE_SECONDS,
+        requires_full_page_reload=True,  # split_scene uses inline scripts
     )
 
 
@@ -589,7 +692,8 @@ def propose_contract_page(participant: Participant) -> ModularPage:
     r = results(participant)[-1]
     you, partner = colors(participant)
     scene = split_scene("propose-scene", "contract-slider", r["own"], r["other"], contract,
-                        you_color=you, partner_color=partner)
+                        you_color=you, partner_color=partner,
+                        you_avatar=own_avatar(participant), partner_avatar=partner_avatar(participant))
     prompt = Markup(
         f"""
         <h3>Propose the group contribution</h3>
@@ -615,6 +719,7 @@ def propose_contract_page(participant: Participant) -> ModularPage:
             bot_response=0.5,
         ),
         time_estimate=CONTRACT_SECONDS,
+        requires_full_page_reload=True,  # split_scene uses inline scripts
     )
 
 
@@ -703,6 +808,7 @@ def sit_out_page(participant: Participant, node_id: int, round_index: int) -> Mo
             tables=tables,
             terrain=ROUND_TERRAINS[round_index % len(ROUND_TERRAINS)],
             watch_seconds=watch_seconds,
+            avatars=looks(participant),
         ),
         NullControl(),
         show_next_button=False,
@@ -737,6 +843,7 @@ class ForagingTrucksTrial(StaticTrial):
         # and meets the others again at the quorum's barrier between rounds.
         return join(
             CodeBlock(lambda participant: assign_round_pairs(participant, round_index)),
+            CodeBlock(lambda participant: remember_looks(participant, round_index)),
             conditional(
                 f"sit_{round_index}",
                 lambda participant: bool(participant.var.get("sitting_out", False)),
@@ -749,6 +856,10 @@ class ForagingTrucksTrial(StaticTrial):
                 join(
                     playing(
                         CodeBlock(notice_if_alone),
+                        PageMaker(
+                            if_playing(lambda participant: pairing_page(participant, round_index)),
+                            time_estimate=PAIRING_SECONDS,
+                        ),
                         PageMaker(
                             if_playing(lambda participant: buy_moves_page(participant, round_index)),
                             time_estimate=MOVES_SECONDS,
@@ -769,6 +880,7 @@ class ForagingTrucksTrial(StaticTrial):
                                 moves=participant.var.get("invested", 0),
                                 title=f"<h3>Round {round_index + 1} of {N_ROUNDS}: collect points</h3>",
                                 terrain=ROUND_TERRAINS[round_index % len(ROUND_TERRAINS)],
+                                avatars=looks(participant),
                             )),
                             time_estimate=FORAGING_DURATION,
                         ),

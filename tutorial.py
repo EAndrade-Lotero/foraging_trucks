@@ -4,6 +4,8 @@ Like the tutorial of EAndrade-Lotero/nested_games: each step asks for one concre
 answer, gives Correct/Incorrect feedback, and the page only moves on when every step passes.
 Practice never affects earnings.
 """
+import json
+
 from markupsafe import Markup
 from psynet.modular_page import ModularPage, NullControl, Prompt
 
@@ -439,13 +441,19 @@ def moving_tutorial() -> ModularPage:
 def split_scene(scene_id: str, slider_id: str, you: int, partner: int, contract: float,
                 you_color: str = PLAYER_COLORS[0], partner_color: str = PLAYER_COLORS[1],
                 fixed: bool = False, play_from: float = None, whole: bool = False,
-                caption: bool = True, legend: bool = True) -> str:
+                caption: bool = True, legend: bool = True,
+                you_avatar: dict = None, partner_avatar: dict = None) -> str:
     """The split picture (static/split_scene.js): two pac-men and the points each one keeps.
 
     With a slider it follows the slider; with `play_from` it animates from that contract to
     `contract` when the page opens (the round result). `legend` is the line under the picture
-    explaining the dot colours; the score page leaves it off.
+    explaining the dot colours; the score page leaves it off. With `you_avatar` and
+    `partner_avatar` (avatar.py) the pac-men wear the players' hats and eyes.
     """
+    avatar_js = (
+        f"youAvatar: {json.dumps(you_avatar)}, partnerAvatar: {json.dumps(partner_avatar)},"
+        if you_avatar or partner_avatar else ""
+    )
     legend_js = (
         'caption.insertAdjacentHTML("afterend", SplitScene.legend({'
         f'youColor: "{you_color}", partnerColor: "{partner_color}"}}));'
@@ -454,6 +462,7 @@ def split_scene(scene_id: str, slider_id: str, you: int, partner: int, contract:
     return f"""
         <div id="{scene_id}" class="scene-box"></div>
         <div id="{scene_id}-caption" class="split-caption scene-box"{"" if caption else ' hidden'}></div>
+        <script src="/static/pacman_avatar.js"></script>
         <script src="/static/split_scene.js"></script>
         <script>
         (function () {{
@@ -461,7 +470,7 @@ def split_scene(scene_id: str, slider_id: str, you: int, partner: int, contract:
             var scene = SplitScene(document.getElementById("{scene_id}"), {{
                 you: {you}, partner: {partner}, contract: {contract if play_from is None else play_from},
                 whole: {"true" if whole else "false"},
-                youColor: "{you_color}", partnerColor: "{partner_color}",
+                youColor: "{you_color}", partnerColor: "{partner_color}", {avatar_js}
                 onChange: function (info) {{ caption.innerHTML = SplitScene.caption(info); }},
             }});
             {legend_js}

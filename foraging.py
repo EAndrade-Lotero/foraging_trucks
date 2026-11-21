@@ -262,12 +262,12 @@ def active_participant_ids(participant: Participant) -> List[int]:
 
 
 def known_players_for_group(participant: Participant, room_id: str) -> dict:
-    """Only seed the local participant; others appear via live websocket state."""
-    active_ids = active_participant_ids(participant)
-    idx = active_ids.index(participant.id)
-    x, y = spawn_position(room_id, idx)
-    return {
-        str(participant.id): {
+    """Everyone in the pair on their starting square, so the first frame already shows the
+    partner; the live websocket state takes over from there."""
+    players = {}
+    for idx, pid in enumerate(active_participant_ids(participant)):
+        x, y = spawn_position(room_id, idx)
+        players[str(pid)] = {
             "x": x,
             "y": y,
             "color": PLAYER_COLORS[idx],
@@ -275,7 +275,7 @@ def known_players_for_group(participant: Participant, room_id: str) -> dict:
             "collected_coin_coordinates": [],
             "connected": True,
         }
-    }
+    return players
 
 
 class EnableForaging(NullElt, WebSocketElt):
@@ -338,7 +338,7 @@ class EnableForaging(NullElt, WebSocketElt):
                 return
             pid_str = str(participant.id)
             room = self._rooms.get(room_id)
-            if room is None or pid_str not in room["players"]:
+            if room is None or room["players"].get(pid_str, {"waiting": True}).get("waiting"):
                 # The join_room message was lost or the server state was reset (e.g.
                 # the debug server reloaded): join now rather than dropping the move.
                 room = self._ensure_room(
@@ -445,13 +445,21 @@ class EnableForaging(NullElt, WebSocketElt):
     def _register_player(self, room: dict, participant: Participant, receive_time=None):
         pid_str = str(participant.id)
         room["connected"].add(pid_str)
-        if pid_str in room["players"]:
+        active_ids = active_participant_ids(participant)
+        # The partner stands on their starting square from the start, even before their
+        # page has loaded, so nobody begins a round looking at an empty board. They take
+        # over this placeholder when they join (it has no moves until then).
+        for i, other in enumerate(active_ids):
+            if str(other) != pid_str and str(other) not in room["players"]:
+                room["players"][str(other)] = dict(self._player_state(room["id"], i, 0), waiting=True)
+        existing = room["players"].get(pid_str)
+        if existing is not None and not existing.get("waiting"):
             # Rejoining after a dropped connection: keep position, coins and moves.
-            if not room["players"][pid_str].get("connected", True):
+            if not existing.get("connected", True):
                 self._log_connection(room, pid_str, "reconnected")
-            room["players"][pid_str]["connected"] = True
+            existing["connected"] = True
             return
-        idx = active_participant_ids(participant).index(participant.id)
+        idx = active_ids.index(participant.id)
         # Moves come from the server, not from the client: the investment experiment.py
         # validated against the bank (participant.var "invested").
         try:
@@ -578,8 +586,11 @@ class ForagingPrompt(Prompt):
         grid_size: int = GRID_SIZE,
         timer_seconds: int = FORAGING_DURATION,
         title: str = "",
+        avatars: dict = None,
     ):
         super().__init__(text=Markup(title) if title else None)
+        # How this participant sees each pac-man (avatar.py); empty keeps yellow and red.
+        self.avatars = avatars or {}
         self.room_id = room_id
         self.participant_id = participant_id
         self.known_players = known_players
@@ -606,6 +617,7 @@ class SitOutPrompt(Prompt):
         terrain: str,
         watch_seconds: int,
         grid_size: int = GRID_SIZE,
+        avatars: dict = None,
     ):
         super().__init__(text=Markup(text))
         self.participant_id = participant_id
@@ -615,6 +627,7 @@ class SitOutPrompt(Prompt):
         self.watch_seconds = watch_seconds
         self.channel = EnableForaging.channel
         self.colors = ["#f1c40f", "#e74c3c"]
+        self.avatars = avatars or {}
 
 
 EMPTY_STATS = {
@@ -651,6 +664,7 @@ class ForagingPage(ModularPage):
         moves: int,
         terrain: str,
         title: str = "",
+        avatars: dict = None,
     ):
         # The room ID must be shared by the whole sync group, otherwise each
         # participant would forage alone in their own room. The node ID is shared
@@ -668,6 +682,7 @@ class ForagingPage(ModularPage):
                 grid_size=GRID_SIZE,
                 timer_seconds=FORAGING_DURATION,
                 title=title,
+                avatars=avatars,
             ),
             control=ForagingControl(),
             time_estimate=FORAGING_DURATION,

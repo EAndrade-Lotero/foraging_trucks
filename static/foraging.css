@@ -379,3 +379,14 @@ body #main-body:has(#wait-page) {
 .learn-more p {
     margin: 0;
 }
+
+/* Pairing page: you & your partner side by side, the rest of the group below. */
+.match-card { display: flex; align-items: center; justify-content: center; gap: 2rem;
+    margin: 1.2rem 0 0.8rem; flex-wrap: wrap; }
+.match-side { display: flex; flex-direction: column; align-items: center; gap: 0.3rem; }
+.match-name { font-weight: 600; }
+.match-vs { font-size: 1.6rem; color: #888; }
+.match-group { text-align: center; margin-top: 0.6rem; }
+.match-group-label { font-size: 0.9rem; color: #555; margin-bottom: 0.3rem; }
+.match-group-row { display: flex; justify-content: center; flex-wrap: wrap; gap: 0.4rem; }
+.pac-slot { display: inline-block; line-height: 0; }

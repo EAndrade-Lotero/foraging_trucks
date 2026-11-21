@@ -170,7 +170,9 @@
     }
 
     // Pac-man with an eye, facing where it last moved. Angle in radians (0 = right).
-    function pacman(color, isSelf, connected, angle) {
+    // With an avatar (static/pacman_avatar.js), the pac-man wears its colour, hat and eyes.
+    function pacman(color, isSelf, connected, angle, avatar) {
+        if (avatar && window.PacAvatar) return window.PacAvatar.mesh(avatar, isSelf, connected, angle);
         var g = new THREE.Group();
         var body = new THREE.Group();
         var mat = new THREE.MeshBasicMaterial({

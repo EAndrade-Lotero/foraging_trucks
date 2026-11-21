@@ -10,6 +10,7 @@ from psynet.page import InfoPage
 from psynet.timeline import PageMaker, Timeline
 
 from .foraging import EnableForaging, patch_dallinger_sockets
+from .avatar import avatar_page
 from .foraging_trucks import summary_page, trial_maker, tutorial_page
 from .game_parameters import (
     BASE_GROUP_SIZE,
@@ -84,12 +85,13 @@ class Exp(psynet.experiment.Experiment):
                 """
                 + (
                     """
-                <p>First, three short tutorials show you how to play. Then you wait
-                for the group.</p>
+                <p>First, three short tutorials show you how to play. Then you make your
+                pac-man and wait for the group.</p>
                 """
                     if INCLUDE_TUTORIAL
                     else """
-                <p>Next you wait for the group, and then the game starts.</p>
+                <p>Next you make your pac-man and wait for the group, and then the game
+                starts.</p>
                 """
                 )
             ),
@@ -105,6 +107,7 @@ class Exp(psynet.experiment.Experiment):
             if INCLUDE_TUTORIAL
             else []
         ),
+        avatar_page(),
         with_waiting_pages(
             ForagingQuorumGrouper.build(
                 BASE_GROUP_SIZE,

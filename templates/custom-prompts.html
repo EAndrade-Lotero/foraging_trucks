@@ -178,6 +178,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script src="/static/pacman_avatar.js"></script>
 <script src="/static/cave.js"></script>
 <script>
 (function () {
@@ -193,10 +194,14 @@
     var PRACTICE_COINS = {{ (config.coins or []) | tojson }};
     var MY_ID = String({{ config.participant_id }});
     var KNOWN_PLAYERS = {{ config.known_players | tojson }};
-    // Each player sees their own pac-man in yellow and their partner in red.
+    // Your own pac-man looks as you chose it; your partner wears this round's disguise
+    // (avatar.py). Without avatars (the tutorial) you are yellow and your partner red.
+    var AVATARS = {{ (config.avatars or {}) | tojson }};
     var SELF_COLOR = "#f1c40f";
     var PARTNER_COLOR = "#e74c3c";
     function playerColor(pid) {
+        var a = AVATARS[String(pid)];
+        if (a && window.PacAvatar) return PacAvatar.hex(a);
         return String(pid) === MY_ID ? SELF_COLOR : PARTNER_COLOR;
     }
     var TIMER_SECONDS = {{ config.timer_seconds }};
@@ -607,7 +612,8 @@
         Object.keys(localState.players || {}).forEach(function (pid) {
             var player = localState.players[pid];
             var pos = gridToWorld(player.x, player.y);
-            var mesh = CaveView.pacman(playerColor(pid), pid === MY_ID, player.connected !== false, facing(player));
+            var mesh = CaveView.pacman(playerColor(pid), pid === MY_ID, player.connected !== false, facing(player),
+                AVATARS[String(pid)]);
             mesh.position.set(pos.x, pos.y, 0.1);
             boardGroup.add(mesh);
             entityMeshes["player_" + pid] = mesh;
@@ -1321,6 +1327,7 @@
 {% if config.text %}<div>{{ config.text }}</div>{% endif %}
 <div class="sitout-boards" id="sitout-boards"></div>
 <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script src="/static/pacman_avatar.js"></script>
 <script src="/static/cave.js"></script>
 <script>
 (function () {
@@ -1330,6 +1337,13 @@
     var TERRAIN = {{ config.terrain | tojson }};
     var MY_ID = String({{ config.participant_id }});
     var COLORS = {{ config.colors | tojson }};
+    // How this viewer sees each player this round (avatar.py); COLORS is the fallback.
+    var AVATARS = {{ (config.avatars or {}) | tojson }};
+    function tableColor(order, pid) {
+        var a = AVATARS[String(pid)];
+        if (a && window.PacAvatar) return PacAvatar.hex(a);
+        return COLORS[Math.max(0, order.indexOf(String(pid)))] || COLORS[1];
+    }
     var cellSize = 1;
     var boardOffset = (GRID - 1) / 2;
     var submitted = false;
@@ -1429,7 +1443,7 @@
         Object.keys(players).forEach(function (pid) {
             var player = players[pid];
             var tint = new THREE.MeshBasicMaterial({
-                color: new THREE.Color(COLORS[Math.max(0, order.indexOf(String(pid)))] || COLORS[1]),
+                color: new THREE.Color(tableColor(order, pid)),
                 transparent: true,
                 opacity: 0.3,
             });
@@ -1445,8 +1459,8 @@
                 self.entityMeshes["trace_" + pid + "_" + key] = tile;
             });
             var pos = gridToWorld(player.x, player.y);
-            var color = COLORS[Math.max(0, order.indexOf(String(pid)))] || COLORS[1];
-            var pac = CaveView.pacman(color, false, player.connected !== false, facing(player));
+            var pac = CaveView.pacman(tableColor(order, pid), false, player.connected !== false, facing(player),
+                AVATARS[String(pid)]);
             pac.position.set(pos.x, pos.y, 0.1);
             self.group.add(pac);
             self.entityMeshes["player_" + pid] = pac;
